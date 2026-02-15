@@ -12,7 +12,7 @@ import { Icons, DEFAULT_CATEGORIES } from './constants';
 
 // Firebase
 import { auth, googleProvider, db } from './firebase';
-import { signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const DEFAULT_FIXED: FixedExpense[] = [
@@ -135,17 +135,30 @@ const App: React.FC = () => {
         try {
             await signInWithPopup(auth, googleProvider);
         } catch (error: any) {
-            console.error("Login failed", error);
-            // Handle missing config gracefully
+            console.error("Login failed (popup)", error);
+            
+            // Fix for PWA/Mobile: Fallback to Redirect if popup is blocked or cancelled
+            if (error.code === 'auth/cancelled-popup-request' || 
+                error.code === 'auth/popup-closed-by-user' || 
+                error.code === 'auth/popup-blocked' ||
+                error.code === 'auth/op-not-supported-in-this-environment') {
+                
+                try {
+                    // Try redirect method which works better in PWAs
+                    await signInWithRedirect(auth, googleProvider);
+                    return; // The page will reload, so we stop here
+                } catch (redirectError: any) {
+                    alert("Logowanie (przekierowanie) nie powiodło się: " + redirectError.message);
+                    return;
+                }
+            }
+
+            // Other errors
             if (error.code === 'auth/configuration-not-found' || error.message.includes('api key')) {
                 alert("Błąd konfiguracji Firebase. Upewnij się, że uzupełniłeś plik firebase.ts swoimi kluczami.");
             } else if (error.code === 'auth/unauthorized-domain') {
                 const domain = window.location.hostname;
                 alert(`Domena "${domain}" nie jest autoryzowana.\n\nMusisz dodać ją w konsoli Firebase:\nAuthentication -> Settings -> Authorized Domains`);
-            } else if (error.code === 'auth/popup-closed-by-user') {
-                // User closed popup, ignore
-            } else if (error.code === 'auth/op-not-supported-in-this-environment') {
-                alert("Logowanie przez popup nie jest wspierane w tym środowisku (np. podgląd wewnątrz innej strony). Użyj 'Trybu Demo'.");
             } else {
                 alert("Logowanie nie powiodło się: " + (error.message || "Nieznany błąd"));
             }
