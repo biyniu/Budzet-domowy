@@ -178,27 +178,31 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, incomes, categories,
              {/* Income Bar Chart Section */}
              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
                 <h3 className="text-emerald-700 font-bold mb-4">Historia Wpływów</h3>
-                <div className="flex items-end justify-between h-32 gap-2">
-                    {incomeTrendData.map((d, i) => {
-                        const heightPercent = maxIncomeTrend > 0 ? (d.amount / maxIncomeTrend) * 100 : 0;
-                        return (
-                            <div key={i} className="flex flex-col items-center flex-1 group">
-                                <div className="relative w-full flex justify-center h-full items-end">
-                                    <div 
-                                        className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-emerald-600' : 'bg-emerald-200 group-hover:bg-emerald-300'}`}
-                                        style={{ height: `${heightPercent || 1}%` }} 
-                                    ></div>
-                                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1 rounded z-10">
-                                        {d.amount.toFixed(0)}
+                {incomes.length > 0 ? (
+                    <div className="flex items-end justify-between h-40 gap-2">
+                        {incomeTrendData.map((d, i) => {
+                            const heightPercent = maxIncomeTrend > 0 ? (d.amount / maxIncomeTrend) * 100 : 0;
+                            return (
+                                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group cursor-default">
+                                    <div className="relative w-full flex-1 flex justify-center items-end mb-2">
+                                        <div 
+                                            className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-emerald-600' : 'bg-emerald-200 group-hover:bg-emerald-300'}`}
+                                            style={{ height: `${Math.max(heightPercent, 2)}%` }} 
+                                        ></div>
+                                        <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1.5 py-0.5 rounded z-10 pointer-events-none">
+                                            {d.amount.toFixed(0)}
+                                        </div>
                                     </div>
+                                    <span className={`text-[10px] h-4 font-medium ${d.isCurrent ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                        {d.label}
+                                    </span>
                                 </div>
-                                <span className={`text-[10px] mt-2 font-medium ${d.isCurrent ? 'text-emerald-700' : 'text-slate-400'}`}>
-                                    {d.label}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center text-slate-400 text-sm py-4">Brak danych</div>
+                )}
             </div>
 
             {/* Pie Chart Section */}
@@ -210,27 +214,31 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, incomes, categories,
             {/* Expense Bar Chart Section */}
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
                 <h3 className="text-slate-800 font-bold mb-4">Historia Wydatków</h3>
-                <div className="flex items-end justify-between h-32 gap-2">
-                    {expenseTrendData.map((d, i) => {
-                        const heightPercent = maxExpenseTrend > 0 ? (d.amount / maxExpenseTrend) * 100 : 0;
-                        return (
-                            <div key={i} className="flex flex-col items-center flex-1 group">
-                                <div className="relative w-full flex justify-center h-full items-end">
-                                    <div 
-                                        className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-indigo-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                                        style={{ height: `${heightPercent || 1}%` }}
-                                    ></div>
-                                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1 rounded z-10">
-                                        {d.amount.toFixed(0)}
+                {expenses.length > 0 ? (
+                    <div className="flex items-end justify-between h-40 gap-2">
+                        {expenseTrendData.map((d, i) => {
+                            const heightPercent = maxExpenseTrend > 0 ? (d.amount / maxExpenseTrend) * 100 : 0;
+                            return (
+                                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group cursor-default">
+                                    <div className="relative w-full flex-1 flex justify-center items-end mb-2">
+                                        <div 
+                                            className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-indigo-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
+                                            style={{ height: `${Math.max(heightPercent, 2)}%` }}
+                                        ></div>
+                                        <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1.5 py-0.5 rounded z-10 pointer-events-none">
+                                            {d.amount.toFixed(0)}
+                                        </div>
                                     </div>
+                                    <span className={`text-[10px] h-4 font-medium ${d.isCurrent ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                        {d.label}
+                                    </span>
                                 </div>
-                                <span className={`text-[10px] mt-2 font-medium ${d.isCurrent ? 'text-indigo-600' : 'text-slate-400'}`}>
-                                    {d.label}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center text-slate-400 text-sm py-4">Brak danych</div>
+                )}
             </div>
         </div>
     );

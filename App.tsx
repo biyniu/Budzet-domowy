@@ -270,6 +270,52 @@ const App: React.FC = () => {
             incomes: [newIncome, ...(prev.incomes || [])]
         }));
     };
+    
+    // New: Edit Income
+    const editIncome = (id: string, amount: number, source: MoneySource, date: string) => {
+        setState(prev => {
+            const oldIncome = prev.incomes.find(i => i.id === id);
+            if (!oldIncome) return prev;
+
+            // Revert old balance effect
+            let newBank = prev.balance.bank;
+            let newCash = prev.balance.cash;
+            
+            if (oldIncome.source === 'bank') newBank -= oldIncome.amount;
+            else newCash -= oldIncome.amount;
+
+            // Apply new balance effect
+            if (source === 'bank') newBank += amount;
+            else newCash += amount;
+
+            return {
+                ...prev,
+                balance: { bank: newBank, cash: newCash },
+                incomes: prev.incomes.map(i => i.id === id ? { ...i, amount, source, date } : i)
+            };
+        });
+    };
+
+    // New: Delete Income
+    const deleteIncome = (id: string) => {
+        if(!window.confirm("Czy na pewno chcesz usunąć ten wpływ?")) return;
+        setState(prev => {
+            const inc = prev.incomes.find(i => i.id === id);
+            if (!inc) return prev;
+
+            let newBank = prev.balance.bank;
+            let newCash = prev.balance.cash;
+            
+            if (inc.source === 'bank') newBank -= inc.amount;
+            else newCash -= inc.amount;
+
+            return {
+                ...prev,
+                balance: { bank: newBank, cash: newCash },
+                incomes: prev.incomes.filter(i => i.id !== id)
+            };
+        });
+    };
 
     const toggleFixed = (id: string) => {
         const expense = state.fixedExpenses.find(e => e.id === id);
@@ -341,14 +387,44 @@ const App: React.FC = () => {
         }));
     };
     const editExpense = (id: string, amount: number, category: string, note: string, source: MoneySource) => {
-        setState(prev => ({
-            ...prev,
-            expenses: prev.expenses.map(e => e.id === id ? { ...e, amount, category, note, source } : e)
-        }));
+        setState(prev => {
+             const oldExp = prev.expenses.find(e => e.id === id);
+             if (!oldExp) return prev;
+
+             // Revert old
+             let newBank = prev.balance.bank;
+             let newCash = prev.balance.cash;
+             if (oldExp.source === 'bank') newBank += oldExp.amount;
+             else newCash += oldExp.amount;
+
+             // Apply new
+             if (source === 'bank') newBank -= amount;
+             else newCash -= amount;
+
+             return {
+                 ...prev,
+                 balance: { bank: newBank, cash: newCash },
+                 expenses: prev.expenses.map(e => e.id === id ? { ...e, amount, category, note, source } : e)
+             };
+        });
     };
     const deleteExpense = (id: string) => {
         if(window.confirm("Usunąć ten wydatek?")) {
-            setState(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+            setState(prev => {
+                const exp = prev.expenses.find(e => e.id === id);
+                if (!exp) return prev;
+
+                let newBank = prev.balance.bank;
+                let newCash = prev.balance.cash;
+                if (exp.source === 'bank') newBank += exp.amount;
+                else newCash += exp.amount;
+
+                return {
+                    ...prev,
+                    balance: { bank: newBank, cash: newCash },
+                    expenses: prev.expenses.filter(e => e.id !== id)
+                };
+            });
         }
     };
     const addCategory = (label: string) => {
@@ -498,12 +574,23 @@ const App: React.FC = () => {
             </header>
 
             <main className="flex-1 p-4 overflow-y-auto scrollbar-hide">
-                {view === 'dashboard' && <Dashboard balance={state.balance} envelopes={state.envelopes} onAddIncome={addIncome} />}
+                {view === 'dashboard' && <Dashboard balance={state.balance} envelopes={state.envelopes} incomes={state.incomes || []} payday={state.settings.payday} onAddIncome={addIncome} />}
                 {view === 'fixed' && <FixedExpenses expenses={state.fixedExpenses} onToggle={toggleFixed} onAdd={addFixed} onEdit={editFixed} onDelete={deleteFixed} onReset={resetFixed} />}
                 {view === 'envelopes' && <Envelopes envelopes={state.envelopes} transactions={state.envelopeTransactions} onAdd={addEnvelope} onEdit={editEnvelope} onDelete={deleteEnvelope} onTransfer={fundEnvelope} onSpend={spendFromEnvelope} />}
                 {view === 'expenses' && <Expenses expenses={state.expenses} categories={state.categories} onAdd={addExpense} onEdit={editExpense} onDelete={deleteExpense} onAddCategory={addCategory} balance={state.balance} payday={state.settings.payday} />}
                 {view === 'reports' && <Reports expenses={state.expenses} incomes={state.incomes || []} categories={state.categories} payday={state.settings.payday} />}
-                {view === 'history' && <History expenses={state.expenses} categories={state.categories} payday={state.settings.payday} />}
+                {view === 'history' && (
+                    <History 
+                        expenses={state.expenses} 
+                        incomes={state.incomes || []} 
+                        categories={state.categories} 
+                        payday={state.settings.payday} 
+                        onEditExpense={editExpense}
+                        onDeleteExpense={deleteExpense}
+                        onEditIncome={editIncome}
+                        onDeleteIncome={deleteIncome}
+                    />
+                )}
                 {view === 'settings' && <Settings payday={state.settings.payday} onPaydayChange={updatePayday} />}
             </main>
 

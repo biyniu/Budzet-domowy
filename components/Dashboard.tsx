@@ -1,15 +1,17 @@
 
-import React, { useState } from 'react';
-import { AccountBalance, Envelope } from '../types';
+import React, { useState, useMemo } from 'react';
+import { AccountBalance, Envelope, IncomeRecord } from '../types';
 import { Icons } from '../constants';
 
 interface DashboardProps {
     balance: AccountBalance;
     envelopes: Envelope[];
+    incomes: IncomeRecord[];
+    payday: number;
     onAddIncome: (amount: number, source: 'bank' | 'cash', date: string) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddIncome }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, incomes, payday, onAddIncome }) => {
     const [amount, setAmount] = useState('');
     const [source, setSource] = useState<'bank' | 'cash'>('bank');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -31,6 +33,56 @@ export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddI
     const totalFree = balance.bank + balance.cash;
     const totalEnvelopes = envelopes.reduce((acc, curr) => acc + curr.allocated, 0);
     const netWorth = totalFree + totalEnvelopes;
+
+    // --- CHART LOGIC: Historical Income Trend (Last 6 Months) ---
+    const incomeTrendData = useMemo(() => {
+        const data: { label: string, amount: number, isCurrent: boolean }[] = [];
+        
+        // Helper to determine the start of the financial month for a given date
+        const getFinancialMonthStart = (date: Date) => {
+            let year = date.getFullYear();
+            let month = date.getMonth(); 
+            if (date.getDate() < payday) {
+                month--;
+                if (month < 0) {
+                    month = 11;
+                    year--;
+                }
+            }
+            return new Date(year, month, payday);
+        };
+
+        const now = new Date();
+        const currentPeriodStart = getFinancialMonthStart(now);
+
+        // Loop back 6 months
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(currentPeriodStart);
+            d.setMonth(d.getMonth() - i);
+            
+            const start = d;
+            const end = new Date(start);
+            end.setMonth(end.getMonth() + 1);
+
+            const total = incomes
+                .filter(inc => {
+                    const incDate = new Date(inc.date);
+                    return incDate >= start && incDate < end;
+                })
+                .reduce((sum, inc) => sum + inc.amount, 0);
+
+            const monthName = start.toLocaleDateString('pl-PL', { month: 'short' });
+            data.push({ 
+                label: monthName, 
+                amount: total,
+                isCurrent: i === 0
+            });
+        }
+        return data;
+    }, [incomes, payday]);
+
+    const maxTrendAmount = Math.max(...incomeTrendData.map(d => d.amount), 1);
+
 
     return (
         <div className="space-y-6 pb-20">
@@ -72,7 +124,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddI
             </div>
 
             {/* Quick Actions */}
-            <div className="pt-4">
+            <div className="pt-2">
                 {!isAdding ? (
                     <button
                         onClick={() => setIsAdding(true)}
@@ -145,6 +197,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddI
                             </button>
                         </div>
                     </form>
+                )}
+            </div>
+
+            {/* Income Trend Chart */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 mt-6">
+                <h3 className="text-emerald-700 font-bold mb-4 text-sm uppercase">Suma wpływów (ostatnie 6 mies.)</h3>
+                {incomes.length > 0 ? (
+                    <div className="flex items-end justify-between h-40 gap-2">
+                        {incomeTrendData.map((d, i) => {
+                            const heightPercent = maxTrendAmount > 0 ? (d.amount / maxTrendAmount) * 100 : 0;
+                            return (
+                                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group cursor-default">
+                                    <div className="relative w-full flex-1 flex justify-center items-end mb-2">
+                                        <div 
+                                            className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-emerald-600' : 'bg-emerald-200 group-hover:bg-emerald-300'}`}
+                                            style={{ height: `${Math.max(heightPercent, 2)}%` }} 
+                                        ></div>
+                                        {/* Tooltip */}
+                                        {d.amount > 0 && (
+                                            <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1.5 py-0.5 rounded z-10 whitespace-nowrap pointer-events-none">
+                                                {d.amount.toFixed(0)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className={`text-[10px] h-4 font-medium uppercase ${d.isCurrent ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                        {d.label}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center text-slate-400 text-sm py-8">Brak danych o wpływach</div>
                 )}
             </div>
         </div>
