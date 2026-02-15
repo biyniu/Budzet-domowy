@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Icons } from '../constants';
 import { auth } from '../firebase';
@@ -47,14 +48,18 @@ export const Settings: React.FC<SettingsProps> = ({ payday, onPaydayChange }) =>
 
             {/* Account Management */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
-                <h3 className="font-semibold text-slate-800 mb-2">Konto</h3>
+                <h3 className="font-semibold text-slate-800 mb-2">Konto i Dane</h3>
                 <p className="text-sm text-slate-500 mb-4">
-                    Jesteś zalogowany. Twoje dane są bezpiecznie synchronizowane z chmurą Google Firebase.
+                    Jesteś zalogowany. Twoje dane są bezpiecznie synchronizowane z chmurą <strong>Google Firebase</strong>.
+                    <br/><br/>
+                    Aplikacja nie tworzy plików na Vercel. Wszystkie kwoty znajdują się w bazie danych Firestore.
                 </p>
-                <div className="text-xs text-slate-400 mb-4 break-all">
-                    ID: {auth.currentUser?.uid}
-                    <br/>
-                    Email: {auth.currentUser?.email}
+                <div className="text-xs text-slate-400 mb-4 break-all bg-slate-50 p-2 rounded border border-slate-100">
+                    <span className="font-bold">Twoje ID użytkownika:</span><br/>
+                    {auth.currentUser?.uid}
+                    <br/><br/>
+                    <span className="font-bold">Email:</span><br/>
+                    {auth.currentUser?.email}
                 </div>
 
                 <button 
@@ -66,7 +71,7 @@ export const Settings: React.FC<SettingsProps> = ({ payday, onPaydayChange }) =>
             </div>
             
             <div className="mt-6 text-center text-xs text-slate-300">
-                Wersja aplikacji: 1.3.0 Cloud
+                Wersja aplikacji: 1.3.1 Cloud Sync
             </div>
         </div>
     );

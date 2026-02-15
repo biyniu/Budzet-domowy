@@ -39,7 +39,7 @@ const App: React.FC = () => {
     const [state, setState] = useState<AppState>(INITIAL_STATE);
     
     // Auth & Loading state
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<User | any | null>(null);
     const [isAppLoaded, setIsAppLoaded] = useState(false); // Data fetched from DB
     const [isAuthChecking, setIsAuthChecking] = useState(true); // Checking if user is logged in
     const [isSaving, setIsSaving] = useState(false);
@@ -47,6 +47,9 @@ const App: React.FC = () => {
     // --- Authentication & Data Loading ---
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            // If we are already in Guest Mode (fake user), ignore Firebase updates
+            if (user?.isGuest) return;
+
             setUser(currentUser);
             setIsAuthChecking(false);
 
@@ -80,15 +83,17 @@ const App: React.FC = () => {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [user?.isGuest]); // Dependency allows us to ignore this hook if guest mode is active
 
     // --- Data Persistence (Save on Change) ---
-    // Using a ref to prevent saving the initial fetch as a "change" immediately if not needed,
-    // though the isAppLoaded flag handles most of this.
     const isFirstRun = useRef(true);
 
     useEffect(() => {
         if (!user || !isAppLoaded) return;
+        
+        // Skip saving for Guest User to avoid Permission Denied errors
+        if (user.isGuest) return;
+
         if (isFirstRun.current) {
             isFirstRun.current = false;
             return;
@@ -102,11 +107,10 @@ const App: React.FC = () => {
             } catch (error) {
                 console.error("Error saving data:", error);
             } finally {
-                setIsSaving(false);
+                setTimeout(() => setIsSaving(false), 500); 
             }
         };
 
-        // Debounce simple implementation using timeout
         const timeoutId = setTimeout(saveData, 1000); 
         return () => clearTimeout(timeoutId);
 
@@ -127,10 +131,26 @@ const App: React.FC = () => {
                 alert(`Domena "${domain}" nie jest autoryzowana.\n\nMusisz dodać ją w konsoli Firebase:\nAuthentication -> Settings -> Authorized Domains`);
             } else if (error.code === 'auth/popup-closed-by-user') {
                 // User closed popup, ignore
+            } else if (error.code === 'auth/op-not-supported-in-this-environment') {
+                alert("Logowanie przez popup nie jest wspierane w tym środowisku (np. podgląd wewnątrz innej strony). Użyj 'Trybu Demo'.");
             } else {
                 alert("Logowanie nie powiodło się: " + (error.message || "Nieznany błąd"));
             }
         }
+    };
+
+    // --- Guest / Demo Login Handler ---
+    const handleGuestLogin = () => {
+        const guestUser = {
+            uid: 'guest_demo_user',
+            email: 'demo@gosc.local',
+            displayName: 'Gość (Demo)',
+            isGuest: true // Flag to identify guest
+        };
+        setUser(guestUser);
+        setState(INITIAL_STATE);
+        setIsAppLoaded(true);
+        setIsAuthChecking(false);
     };
 
 
@@ -248,7 +268,7 @@ const App: React.FC = () => {
                     
                     <button 
                         onClick={handleLogin}
-                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium shadow-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium shadow-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 mb-3"
                     >
                         <svg className="w-5 h-5" viewBox="0 0 24 24">
                             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -258,6 +278,14 @@ const App: React.FC = () => {
                         </svg>
                         Zaloguj przez Google
                     </button>
+                    
+                    <button 
+                        onClick={handleGuestLogin}
+                        className="w-full bg-white text-slate-600 border border-slate-300 py-3 rounded-xl font-medium shadow-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 text-sm"
+                    >
+                        Wersja Demo (Tryb Gościa)
+                    </button>
+                    
                     <p className="mt-4 text-xs text-slate-300">Wymaga konfiguracji Firebase</p>
                 </div>
             </div>
@@ -269,12 +297,19 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen bg-slate-50 max-w-lg mx-auto shadow-2xl overflow-hidden flex flex-col relative">
             
-            {/* Sync Indicator */}
-            <div className={`fixed top-0 left-0 right-0 h-1 z-50 transition-all ${isSaving ? 'bg-emerald-500 w-full' : 'bg-transparent w-0'}`}></div>
-
             {/* Header */}
             <header className="bg-white p-4 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10 px-6">
-                <div className="w-6"></div> 
+                <div className="w-6 flex items-center justify-center">
+                    {user?.isGuest ? (
+                        <span title="Tryb Gościa (Brak zapisu)" className="text-xs font-bold text-amber-500 border border-amber-200 bg-amber-50 px-1 rounded">DEMO</span>
+                    ) : (
+                        isSaving ? (
+                            <Icons.CloudUpload className="w-5 h-5 text-amber-500 animate-pulse" />
+                        ) : (
+                            <Icons.CloudCheck className="w-5 h-5 text-emerald-500" />
+                        )
+                    )}
+                </div>
                 <h1 className="font-bold text-slate-800 text-lg">
                     {view === 'dashboard' && 'Twój Portfel'}
                     {view === 'fixed' && 'Rachunki'}
