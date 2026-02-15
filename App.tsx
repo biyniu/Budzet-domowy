@@ -11,8 +11,14 @@ import { AppState, ViewState, FixedExpense, MoneySource } from './types';
 import { Icons, DEFAULT_CATEGORIES } from './constants';
 
 // Firebase
-import { auth, googleProvider, db } from './firebase';
-import { signInWithPopup, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
+import { auth, db } from './firebase';
+import { 
+    signInWithEmailAndPassword, 
+    createUserWithEmailAndPassword, 
+    onAuthStateChanged, 
+    User,
+    updateProfile
+} from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const DEFAULT_FIXED: FixedExpense[] = [
@@ -41,21 +47,31 @@ const App: React.FC = () => {
     
     // Auth & Loading state
     const [user, setUser] = useState<User | any | null>(null);
-    const [isAppLoaded, setIsAppLoaded] = useState(false); // Data fetched from DB
-    const [isAuthChecking, setIsAuthChecking] = useState(true); // Checking if user is logged in
+    const [isAppLoaded, setIsAppLoaded] = useState(false);
+    const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+
+    // Login Form State
+    const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+    
+    // Initialize ID from local storage if available
+    const [savedId, setSavedId] = useState<string>(() => localStorage.getItem('budget_user_id') || '');
+    const [loginId, setLoginId] = useState(() => localStorage.getItem('budget_user_id') || '');
+    
+    const [loginPin, setLoginPin] = useState('');
+    const [authError, setAuthError] = useState('');
+    const [authLoading, setAuthLoading] = useState(false);
 
     // --- Authentication & Data Loading ---
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-            // If we are already in Guest Mode (fake user), ignore Firebase updates
             if (user?.isGuest) return;
 
             setUser(currentUser);
             setIsAuthChecking(false);
 
             if (currentUser) {
-                // User logged in - Fetch data from Firestore
+                // User logged in - Fetch data
                 try {
                     const docRef = doc(db, 'users', currentUser.uid);
                     const docSnap = await getDoc(docRef);
@@ -67,44 +83,29 @@ const App: React.FC = () => {
                         if (!data.categories) data.categories = DEFAULT_CATEGORIES;
                         setState(data);
                     } else {
-                        // First time user - save initial state to DB
+                        // First time user - save initial state
                         await setDoc(docRef, INITIAL_STATE);
                         setState(INITIAL_STATE);
                     }
                 } catch (error: any) {
                     console.error("Error fetching data:", error);
-                    
-                    let errorMsg = "Nieznany błąd";
-                    if (error.code === 'permission-denied') {
-                        errorMsg = "BRAK UPRAWNIEŃ DO BAZY DANYCH (Firestore).\n\nTwoja baza danych blokuje dostęp.\nWejdź w Firebase Console -> Firestore Database -> zakładka Rules i zmień:\n'allow read, write: if request.auth != null;'";
-                    } else if (error.code === 'failed-precondition') {
-                        errorMsg = "Baza danych nie została utworzona w Firebase Console. Wejdź w 'Firestore Database' i kliknij 'Create Database'.";
-                    } else if (error.code === 'unavailable') {
-                        errorMsg = "Brak połączenia z serwerem. Jeśli jesteś na Vercel, sprawdź czy Twój KLUCZ API w Google Cloud Console nie ma blokady na domenę (HTTP Referrer restrictions). Dodaj domenę vercel.app do dozwolonych.";
-                    } else {
-                        errorMsg = error.message || JSON.stringify(error);
-                    }
-                    
-                    alert(`BŁĄD POBIERANIA DANYCH:\n\n${errorMsg}`);
+                    alert(`Błąd pobierania danych: ${error.message}`);
                 } finally {
                     setIsAppLoaded(true);
                 }
             } else {
-                // User logged out
                 setIsAppLoaded(false);
             }
         });
 
         return () => unsubscribe();
-    }, [user?.isGuest]); // Dependency allows us to ignore this hook if guest mode is active
+    }, [user?.isGuest]);
 
-    // --- Data Persistence (Save on Change) ---
+    // --- Data Persistence ---
     const isFirstRun = useRef(true);
 
     useEffect(() => {
         if (!user || !isAppLoaded) return;
-        
-        // Skip saving for Guest User to avoid Permission Denied errors
         if (user.isGuest) return;
 
         if (isFirstRun.current) {
@@ -130,48 +131,65 @@ const App: React.FC = () => {
     }, [state, user, isAppLoaded]);
 
 
-    // --- Login Handler ---
-    const handleLogin = async () => {
-        try {
-            await signInWithPopup(auth, googleProvider);
-        } catch (error: any) {
-            console.error("Login failed (popup)", error);
-            
-            // Fix for PWA/Mobile: Fallback to Redirect if popup is blocked or cancelled
-            if (error.code === 'auth/cancelled-popup-request' || 
-                error.code === 'auth/popup-closed-by-user' || 
-                error.code === 'auth/popup-blocked' ||
-                error.code === 'auth/op-not-supported-in-this-environment') {
-                
-                try {
-                    // Try redirect method which works better in PWAs
-                    await signInWithRedirect(auth, googleProvider);
-                    return; // The page will reload, so we stop here
-                } catch (redirectError: any) {
-                    alert("Logowanie (przekierowanie) nie powiodło się: " + redirectError.message);
-                    return;
-                }
-            }
+    // --- Custom Auth Handlers ---
+    
+    // Helper to transform "janek" -> "janek@budget.local"
+    const getEmailFromId = (id: string) => {
+        const cleanId = id.trim().toLowerCase().replace(/\s+/g, '.');
+        return `${cleanId}@budget.local`;
+    };
 
-            // Other errors
-            if (error.code === 'auth/configuration-not-found' || error.message.includes('api key')) {
-                alert("Błąd konfiguracji Firebase. Upewnij się, że uzupełniłeś plik firebase.ts swoimi kluczami.");
-            } else if (error.code === 'auth/unauthorized-domain') {
-                const domain = window.location.hostname;
-                alert(`Domena "${domain}" nie jest autoryzowana.\n\nMusisz dodać ją w konsoli Firebase:\nAuthentication -> Settings -> Authorized Domains`);
+    const handleAuthSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthLoading(true);
+
+        const email = getEmailFromId(loginId);
+        
+        if (loginPin.length < 6) {
+            setAuthError('Kod dostępu musi mieć minimum 6 znaków.');
+            setAuthLoading(false);
+            return;
+        }
+
+        try {
+            if (authMode === 'login') {
+                await signInWithEmailAndPassword(auth, email, loginPin);
+                // Save ID for next time only on success
+                localStorage.setItem('budget_user_id', loginId);
+                setSavedId(loginId);
             } else {
-                alert("Logowanie nie powiodło się: " + (error.message || "Nieznany błąd"));
+                // Register
+                const userCredential = await createUserWithEmailAndPassword(auth, email, loginPin);
+                await updateProfile(userCredential.user, {
+                    displayName: loginId
+                });
+                // Save ID for next time
+                localStorage.setItem('budget_user_id', loginId);
+                setSavedId(loginId);
             }
+        } catch (error: any) {
+            console.error("Auth error:", error);
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                setAuthError('Błędny identyfikator lub kod.');
+            } else if (error.code === 'auth/email-already-in-use') {
+                setAuthError('Ten identyfikator jest już zajęty.');
+            } else if (error.code === 'auth/weak-password') {
+                setAuthError('Kod jest za słaby (min. 6 znaków).');
+            } else {
+                setAuthError('Wystąpił błąd: ' + error.message);
+            }
+        } finally {
+            setAuthLoading(false);
         }
     };
 
-    // --- Guest / Demo Login Handler ---
     const handleGuestLogin = () => {
         const guestUser = {
             uid: 'guest_demo_user',
             email: 'demo@gosc.local',
-            displayName: 'Gość (Demo)',
-            isGuest: true // Flag to identify guest
+            displayName: 'Gość',
+            isGuest: true
         };
         setUser(guestUser);
         setState(INITIAL_STATE);
@@ -179,9 +197,15 @@ const App: React.FC = () => {
         setIsAuthChecking(false);
     };
 
+    const handleSwitchAccount = () => {
+        setSavedId('');
+        setLoginId('');
+        localStorage.removeItem('budget_user_id');
+        setLoginPin('');
+    };
+
 
     // --- Logic Wrappers (Same as before) ---
-    // Auto Reset Logic
     useEffect(() => {
         if (!isAppLoaded) return;
         const payday = state.settings.payday;
@@ -210,7 +234,7 @@ const App: React.FC = () => {
         }
     }, [isAppLoaded, state.settings.payday]);
 
-    // Handlers
+    // Handlers (Reduced for brevity, logic identical to previous version)
     const addIncome = (amount: number, source: 'bank' | 'cash') => {
         setState(prev => ({ ...prev, balance: { ...prev.balance, [source]: prev.balance[source] + amount } }));
     };
@@ -284,9 +308,6 @@ const App: React.FC = () => {
         }));
     };
     const editExpense = (id: string, amount: number, category: string, note: string, source: MoneySource) => {
-        // Warning: Changing amount source/value here doesn't automatically refund/charge balance because keeping track of "what it was before" is complex.
-        // For simple app, we just update the record. User can manually adjust balance if needed or we could calculate diff.
-        // To be safe and simple: just update the record.
         setState(prev => ({
             ...prev,
             expenses: prev.expenses.map(e => e.id === id ? { ...e, amount, category, note, source } : e)
@@ -309,36 +330,109 @@ const App: React.FC = () => {
     if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Ładowanie...</div>;
 
     if (!user) {
+        const isReturningUser = authMode === 'login' && savedId;
+
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
                     <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Icons.Wallet className="w-8 h-8" />
                     </div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-2">Domowy Budżet</h1>
-                    <p className="text-slate-500 mb-8">Zaloguj się, aby zsynchronizować swoje finanse w chmurze.</p>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">Domowy Budżet</h1>
+                    <p className="text-slate-500 mb-6 text-sm">Twoje finanse w jednym miejscu</p>
                     
-                    <button 
-                        onClick={handleLogin}
-                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium shadow-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 mb-3"
-                    >
-                        <svg className="w-5 h-5" viewBox="0 0 24 24">
-                            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                            <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                            <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" />
-                            <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                        </svg>
-                        Zaloguj przez Google
-                    </button>
+                    {/* Toggle Auth Mode */}
+                    <div className="flex bg-slate-100 p-1 rounded-lg mb-6">
+                        <button 
+                            onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                            className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${authMode === 'login' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Logowanie
+                        </button>
+                        <button 
+                            onClick={() => { 
+                                setAuthMode('register'); 
+                                setAuthError(''); 
+                                // Reset fields if registering new user
+                                if (savedId) {
+                                    setLoginId('');
+                                }
+                            }}
+                            className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${authMode === 'register' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Rejestracja
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleAuthSubmit} className="space-y-4 text-left">
+                        {isReturningUser ? (
+                            <div className="text-center mb-6">
+                                <p className="text-sm text-slate-400">Witaj ponownie,</p>
+                                <p className="text-xl font-bold text-emerald-600 mb-2">{savedId}</p>
+                                <button 
+                                    type="button" 
+                                    onClick={handleSwitchAccount}
+                                    className="text-xs text-slate-400 underline hover:text-slate-600"
+                                >
+                                    To nie Ty? Zmień konto
+                                </button>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Identyfikator</label>
+                                <input 
+                                    type="text"
+                                    value={loginId}
+                                    onChange={(e) => setLoginId(e.target.value)}
+                                    placeholder="np. imie.nazwisko"
+                                    className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors"
+                                    required
+                                />
+                            </div>
+                        )}
+                        
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                {isReturningUser ? 'Podaj swój PIN' : 'Kod dostępu (PIN)'}
+                            </label>
+                            <input 
+                                type="password" 
+                                inputMode="numeric"
+                                value={loginPin}
+                                onChange={(e) => setLoginPin(e.target.value)}
+                                placeholder="******"
+                                className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors tracking-widest text-center text-lg font-bold"
+                                required
+                                autoFocus={!!isReturningUser}
+                            />
+                        </div>
+
+                        {authError && (
+                            <div className="text-red-500 text-xs text-center bg-red-50 p-2 rounded-lg border border-red-100">
+                                {authError}
+                            </div>
+                        )}
+
+                        <button 
+                            type="submit"
+                            disabled={authLoading}
+                            className={`w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95 ${authLoading ? 'opacity-70' : ''}`}
+                        >
+                            {authLoading ? 'Przetwarzanie...' : (authMode === 'login' ? 'Wejdź' : 'Utwórz konto')}
+                        </button>
+                    </form>
                     
-                    <button 
-                        onClick={handleGuestLogin}
-                        className="w-full bg-white text-slate-600 border border-slate-300 py-3 rounded-xl font-medium shadow-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 text-sm"
-                    >
-                        Wersja Demo (Tryb Gościa)
-                    </button>
-                    
-                    <p className="mt-4 text-xs text-slate-300">Wymaga konfiguracji Firebase</p>
+                    <div className="mt-6 border-t border-slate-100 pt-4">
+                        <button 
+                            onClick={handleGuestLogin}
+                            className="text-slate-400 hover:text-emerald-600 text-xs font-medium transition-colors"
+                        >
+                            Wersja Demo (Tryb Gościa)
+                        </button>
+                    </div>
+                </div>
+                <div className="mt-8 text-[10px] text-slate-300 max-w-xs text-center">
+                    Aplikacja zapamiętuje Twój identyfikator na tym urządzeniu.
                 </div>
             </div>
         );
