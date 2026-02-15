@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { AccountBalance, Envelope } from '../types';
 import { Icons } from '../constants';
@@ -5,12 +6,13 @@ import { Icons } from '../constants';
 interface DashboardProps {
     balance: AccountBalance;
     envelopes: Envelope[];
-    onAddIncome: (amount: number, source: 'bank' | 'cash') => void;
+    onAddIncome: (amount: number, source: 'bank' | 'cash', date: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddIncome }) => {
     const [amount, setAmount] = useState('');
     const [source, setSource] = useState<'bank' | 'cash'>('bank');
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [isAdding, setIsAdding] = useState(false);
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -19,8 +21,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddI
         const sanitized = amount.replace(',', '.').replace(/\s/g, '');
         const val = parseFloat(sanitized);
         if (!isNaN(val) && val > 0) {
-            onAddIncome(val, source);
+            onAddIncome(val, source, date);
             setAmount('');
+            setDate(new Date().toISOString().split('T')[0]); // Reset date to today
             setIsAdding(false);
         }
     };
@@ -92,6 +95,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ balance, envelopes, onAddI
                                 className="w-full text-2xl font-bold p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-slate-900"
                                 placeholder="0.00"
                                 autoFocus
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">Data</label>
+                            <input
+                                type="date"
+                                value={date}
+                                onChange={(e) => setDate(e.target.value)}
+                                className="w-full p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-slate-900"
+                                required
                             />
                         </div>
 

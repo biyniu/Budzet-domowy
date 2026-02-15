@@ -1,5 +1,4 @@
 
-
 export interface AccountBalance {
     bank: number;
     cash: number;
@@ -42,6 +41,13 @@ export interface ExpenseRecord {
     note?: string;
 }
 
+export interface IncomeRecord {
+    id: string;
+    amount: number;
+    date: string; // ISO string
+    source: MoneySource;
+}
+
 export interface Category {
     id: string;
     label: string;
@@ -56,6 +62,7 @@ export interface AppState {
     envelopes: Envelope[];
     envelopeTransactions: EnvelopeTransaction[];
     expenses: ExpenseRecord[];
+    incomes: IncomeRecord[]; // New: Track income history
     categories: Category[]; // New: Dynamic categories
     settings: {
         payday: number; // Day of month (1-31)

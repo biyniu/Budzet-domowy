@@ -7,7 +7,7 @@ import { Expenses } from './components/Expenses';
 import { History } from './components/History';
 import { Reports } from './components/Reports';
 import { Settings } from './components/Settings';
-import { AppState, ViewState, FixedExpense, MoneySource } from './types';
+import { AppState, ViewState, FixedExpense, MoneySource, IncomeRecord } from './types';
 import { Icons, DEFAULT_CATEGORIES } from './constants';
 
 // Firebase
@@ -34,6 +34,7 @@ const INITIAL_STATE: AppState = {
     envelopes: [],
     envelopeTransactions: [],
     expenses: [],
+    incomes: [],
     categories: DEFAULT_CATEGORIES,
     settings: {
         payday: 1, 
@@ -85,12 +86,10 @@ const App: React.FC = () => {
 
                     if (docSnap.exists()) {
                         const cloudData = docSnap.data() as AppState;
-                        // Determine if we should update local state (simple strategy: always trust cloud on load)
-                        // In a real PWA we might compare timestamps, but for now, cloud wins on load.
-                        
                         // Migrations/Safety checks
                         if (!cloudData.settings) cloudData.settings = INITIAL_STATE.settings;
                         if (!cloudData.categories) cloudData.categories = DEFAULT_CATEGORIES;
+                        if (!cloudData.incomes) cloudData.incomes = []; // Migration for existing users
                         
                         setState(cloudData);
                         // Update local cache immediately
@@ -98,23 +97,18 @@ const App: React.FC = () => {
                     } else {
                         // First time user on this cloud account
                         if (!localStorage.getItem('budget_data')) {
-                            // Only set initial if no local data exists to prevent overwriting
                             await setDoc(docRef, INITIAL_STATE);
                             setState(INITIAL_STATE);
                         } else {
-                            // We have local data (maybe newly registered), push it to cloud
                             await setDoc(docRef, state);
                         }
                     }
                 } catch (error: any) {
                     console.error("Error fetching cloud data:", error);
-                    // Silently fail - we have local data anyway
                 } finally {
                     setIsAppLoaded(true);
                 }
             } else {
-                // User logged out
-                // Only reset loaded state if we don't have local user ID (meaning explicitly logged out)
                 if (!savedId) {
                     setIsAppLoaded(false);
                 }
@@ -128,7 +122,6 @@ const App: React.FC = () => {
     const isFirstRun = useRef(true);
 
     useEffect(() => {
-        // Always save to LocalStorage for speed
         if (!isFirstRun.current) {
              localStorage.setItem('budget_data', JSON.stringify(state));
         }
@@ -153,14 +146,13 @@ const App: React.FC = () => {
             }
         };
 
-        const timeoutId = setTimeout(saveToCloud, 2000); // Debounce cloud save to 2 seconds
+        const timeoutId = setTimeout(saveToCloud, 2000); 
         return () => clearTimeout(timeoutId);
 
     }, [state, user, isAppLoaded]);
 
 
     // --- Custom Auth Handlers ---
-    
     const getEmailFromId = (id: string) => {
         const cleanId = id.trim().toLowerCase().replace(/\s+/g, '.');
         return `${cleanId}@budget.local`;
@@ -173,7 +165,6 @@ const App: React.FC = () => {
 
         const email = getEmailFromId(loginId);
         
-        // Changed to minimum 4 digits
         if (loginPin.length < 4) {
             setAuthError('Kod dostępu musi mieć minimum 4 znaki.');
             setAuthLoading(false);
@@ -200,7 +191,7 @@ const App: React.FC = () => {
             } else if (error.code === 'auth/email-already-in-use') {
                 setAuthError('Ten identyfikator jest już zajęty.');
             } else if (error.code === 'auth/weak-password') {
-                setAuthError('Kod jest za słaby (min. 6 znaków w Firebase, ale ustawiliśmy 4).');
+                setAuthError('Kod jest za słaby.');
             } else {
                 setAuthError('Błąd: ' + error.message);
             }
@@ -226,7 +217,7 @@ const App: React.FC = () => {
         setSavedId('');
         setLoginId('');
         localStorage.removeItem('budget_user_id');
-        localStorage.removeItem('budget_data'); // Clear cache on explicit logout
+        localStorage.removeItem('budget_data'); 
         setLoginPin('');
         auth.signOut();
     };
@@ -262,9 +253,24 @@ const App: React.FC = () => {
     }, [isAppLoaded, state.settings.payday]);
 
     // Handlers
-    const addIncome = (amount: number, source: 'bank' | 'cash') => {
-        setState(prev => ({ ...prev, balance: { ...prev.balance, [source]: prev.balance[source] + amount } }));
+    const addIncome = (amount: number, source: 'bank' | 'cash', dateStr?: string) => {
+        // Use provided date or fallback to current time
+        const entryDate = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
+
+        const newIncome: IncomeRecord = {
+            id: Date.now().toString(),
+            amount,
+            date: entryDate,
+            source
+        };
+
+        setState(prev => ({
+            ...prev,
+            balance: { ...prev.balance, [source]: prev.balance[source] + amount },
+            incomes: [newIncome, ...(prev.incomes || [])]
+        }));
     };
+
     const toggleFixed = (id: string) => {
         const expense = state.fixedExpenses.find(e => e.id === id);
         if (!expense) return;
@@ -353,8 +359,6 @@ const App: React.FC = () => {
         setState(prev => ({ ...prev, settings: { ...prev.settings, payday: day } }));
     };
 
-    // --- Render Login Screen ---
-    // Note: We hide checking state if we already have local data to show
     if (isAuthChecking && !isAppLoaded) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Ładowanie...</div>;
 
     if (!user && !isAppLoaded) {
@@ -369,7 +373,6 @@ const App: React.FC = () => {
                     <h1 className="text-2xl font-bold text-slate-800 mb-1">Domowy Budżet</h1>
                     <p className="text-slate-500 mb-6 text-sm">Twoje finanse w jednym miejscu</p>
                     
-                    {/* Toggle Auth Mode */}
                     <div className="flex bg-slate-100 p-1 rounded-lg mb-6">
                         <button 
                             onClick={() => { setAuthMode('login'); setAuthError(''); }}
@@ -465,11 +468,9 @@ const App: React.FC = () => {
         );
     }
 
-    // Main App UI (Shown if user is logged in OR if we have cached data)
     return (
         <div className="min-h-screen bg-slate-50 max-w-lg mx-auto shadow-2xl overflow-hidden flex flex-col relative">
             
-            {/* Header */}
             <header className="bg-white p-4 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10 px-6">
                 <div className="w-6 flex items-center justify-center">
                     {user?.isGuest ? (
@@ -496,18 +497,16 @@ const App: React.FC = () => {
                 </button>
             </header>
 
-            {/* Main Content */}
             <main className="flex-1 p-4 overflow-y-auto scrollbar-hide">
                 {view === 'dashboard' && <Dashboard balance={state.balance} envelopes={state.envelopes} onAddIncome={addIncome} />}
                 {view === 'fixed' && <FixedExpenses expenses={state.fixedExpenses} onToggle={toggleFixed} onAdd={addFixed} onEdit={editFixed} onDelete={deleteFixed} onReset={resetFixed} />}
                 {view === 'envelopes' && <Envelopes envelopes={state.envelopes} transactions={state.envelopeTransactions} onAdd={addEnvelope} onEdit={editEnvelope} onDelete={deleteEnvelope} onTransfer={fundEnvelope} onSpend={spendFromEnvelope} />}
                 {view === 'expenses' && <Expenses expenses={state.expenses} categories={state.categories} onAdd={addExpense} onEdit={editExpense} onDelete={deleteExpense} onAddCategory={addCategory} balance={state.balance} payday={state.settings.payday} />}
-                {view === 'reports' && <Reports expenses={state.expenses} categories={state.categories} payday={state.settings.payday} />}
+                {view === 'reports' && <Reports expenses={state.expenses} incomes={state.incomes || []} categories={state.categories} payday={state.settings.payday} />}
                 {view === 'history' && <History expenses={state.expenses} categories={state.categories} payday={state.settings.payday} />}
                 {view === 'settings' && <Settings payday={state.settings.payday} onPaydayChange={updatePayday} />}
             </main>
 
-            {/* Bottom Navigation */}
             <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-lg pb-safe z-40">
                 <div className="flex justify-around items-center h-16">
                     <button onClick={() => setView('dashboard')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Home className="w-6 h-6" /><span className="text-[9px] font-medium">Start</span></button>

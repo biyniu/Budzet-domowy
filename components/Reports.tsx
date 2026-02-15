@@ -1,17 +1,17 @@
 
 import React, { useMemo } from 'react';
-import { ExpenseRecord, Category } from '../types';
+import { ExpenseRecord, IncomeRecord, Category } from '../types';
 
 interface ReportsProps {
     expenses: ExpenseRecord[];
+    incomes: IncomeRecord[];
     categories: Category[];
     payday: number;
 }
 
-export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }) => {
+export const Reports: React.FC<ReportsProps> = ({ expenses, incomes, categories, payday }) => {
 
     // Helper: Determine period string for a date (e.g., "2023-10")
-    // If payday is 10th, then Oct 9th is period "2023-09"
     const getFinancialMonthDate = (date: Date) => {
         let year = date.getFullYear();
         let month = date.getMonth(); 
@@ -67,8 +67,8 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }
     const projectedTotal = dailyAverage * daysInMonth;
 
 
-    // --- Historical Trend (Last 6 Months) ---
-    const trendData = useMemo(() => {
+    // --- Historical Trends (Last 6 Months) ---
+    const getTrendData = (records: {amount: number, date: string}[]) => {
         const data: { label: string, amount: number, isCurrent: boolean }[] = [];
         
         for (let i = 5; i >= 0; i--) {
@@ -79,7 +79,7 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }
             const end = new Date(start);
             end.setMonth(end.getMonth() + 1);
 
-            const total = expenses
+            const total = records
                 .filter(e => {
                     const ed = new Date(e.date);
                     return ed >= start && ed < end;
@@ -94,9 +94,13 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }
             });
         }
         return data;
-    }, [expenses, currentPeriodStart]);
+    };
 
-    const maxTrendAmount = Math.max(...trendData.map(d => d.amount), 1);
+    const expenseTrendData = useMemo(() => getTrendData(expenses), [expenses, currentPeriodStart]);
+    const incomeTrendData = useMemo(() => getTrendData(incomes), [incomes, currentPeriodStart]);
+
+    const maxExpenseTrend = Math.max(...expenseTrendData.map(d => d.amount), 1);
+    const maxIncomeTrend = Math.max(...incomeTrendData.map(d => d.amount), 1);
 
     // --- Simple SVG Pie Chart Component ---
     const PieChart = () => {
@@ -171,31 +175,56 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }
                 <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white opacity-10 rounded-full blur-xl"></div>
             </div>
 
+             {/* Income Bar Chart Section */}
+             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="text-emerald-700 font-bold mb-4">Historia Wpływów</h3>
+                <div className="flex items-end justify-between h-32 gap-2">
+                    {incomeTrendData.map((d, i) => {
+                        const heightPercent = maxIncomeTrend > 0 ? (d.amount / maxIncomeTrend) * 100 : 0;
+                        return (
+                            <div key={i} className="flex flex-col items-center flex-1 group">
+                                <div className="relative w-full flex justify-center h-full items-end">
+                                    <div 
+                                        className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-emerald-600' : 'bg-emerald-200 group-hover:bg-emerald-300'}`}
+                                        style={{ height: `${heightPercent || 1}%` }} 
+                                    ></div>
+                                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1 rounded z-10">
+                                        {d.amount.toFixed(0)}
+                                    </div>
+                                </div>
+                                <span className={`text-[10px] mt-2 font-medium ${d.isCurrent ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                    {d.label}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
             {/* Pie Chart Section */}
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
                 <h3 className="text-slate-800 font-bold mb-4">Struktura wydatków</h3>
                 <PieChart />
             </div>
 
-            {/* Bar Chart Section */}
+            {/* Expense Bar Chart Section */}
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-                <h3 className="text-slate-800 font-bold mb-4">Ostatnie 6 miesięcy</h3>
+                <h3 className="text-slate-800 font-bold mb-4">Historia Wydatków</h3>
                 <div className="flex items-end justify-between h-32 gap-2">
-                    {trendData.map((d, i) => {
-                        const heightPercent = (d.amount / maxTrendAmount) * 100;
+                    {expenseTrendData.map((d, i) => {
+                        const heightPercent = maxExpenseTrend > 0 ? (d.amount / maxExpenseTrend) * 100 : 0;
                         return (
                             <div key={i} className="flex flex-col items-center flex-1 group">
                                 <div className="relative w-full flex justify-center h-full items-end">
                                     <div 
-                                        className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-emerald-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                                        style={{ height: `${heightPercent}%` }}
+                                        className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ${d.isCurrent ? 'bg-indigo-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
+                                        style={{ height: `${heightPercent || 1}%` }}
                                     ></div>
-                                    {/* Tooltipish value */}
-                                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1 rounded">
+                                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold bg-slate-800 text-white px-1 rounded z-10">
                                         {d.amount.toFixed(0)}
                                     </div>
                                 </div>
-                                <span className={`text-[10px] mt-2 font-medium ${d.isCurrent ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                <span className={`text-[10px] mt-2 font-medium ${d.isCurrent ? 'text-indigo-600' : 'text-slate-400'}`}>
                                     {d.label}
                                 </span>
                             </div>
@@ -207,20 +236,16 @@ export const Reports: React.FC<ReportsProps> = ({ expenses, categories, payday }
     );
 };
 
-
-// Helper to extract hex color from tailwind class roughly
-// This is a simplification. Ideally, we would store hex in Category, 
-// but since we store tailwind classes like 'bg-green-100', we map them here for SVG.
 const getTailwindColorHex = (tailwindClass: string): string => {
-    if (tailwindClass.includes('green')) return '#4ade80'; // green-400
-    if (tailwindClass.includes('blue')) return '#60a5fa'; // blue-400
-    if (tailwindClass.includes('orange')) return '#fb923c'; // orange-400
-    if (tailwindClass.includes('gray')) return '#9ca3af'; // gray-400
-    if (tailwindClass.includes('red')) return '#f87171'; // red-400
-    if (tailwindClass.includes('purple')) return '#c084fc'; // purple-400
-    if (tailwindClass.includes('slate')) return '#94a3b8'; // slate-400
-    if (tailwindClass.includes('indigo')) return '#818cf8'; // indigo-400
-    if (tailwindClass.includes('pink')) return '#f472b6'; // pink-400
-    if (tailwindClass.includes('amber')) return '#fbbf24'; // amber-400
-    return '#cbd5e1'; // slate-300 default
+    if (tailwindClass.includes('green')) return '#4ade80';
+    if (tailwindClass.includes('blue')) return '#60a5fa';
+    if (tailwindClass.includes('orange')) return '#fb923c';
+    if (tailwindClass.includes('gray')) return '#9ca3af';
+    if (tailwindClass.includes('red')) return '#f87171';
+    if (tailwindClass.includes('purple')) return '#c084fc';
+    if (tailwindClass.includes('slate')) return '#94a3b8';
+    if (tailwindClass.includes('indigo')) return '#818cf8';
+    if (tailwindClass.includes('pink')) return '#f472b6';
+    if (tailwindClass.includes('amber')) return '#fbbf24';
+    return '#cbd5e1'; 
 };
