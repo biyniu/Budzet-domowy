@@ -71,7 +71,7 @@ export const Settings: React.FC<SettingsProps> = ({ payday, onPaydayChange }) =>
             </div>
             
             <div className="mt-6 text-center text-xs text-slate-300">
-                Wersja aplikacji: 1.3.1 Cloud Sync
+                Wersja aplikacji: 1.4.0 (Fix: Error Handling)
             </div>
         </div>
     );

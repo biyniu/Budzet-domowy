@@ -70,9 +70,21 @@ const App: React.FC = () => {
                         await setDoc(docRef, INITIAL_STATE);
                         setState(INITIAL_STATE);
                     }
-                } catch (error) {
+                } catch (error: any) {
                     console.error("Error fetching data:", error);
-                    alert("Błąd pobierania danych z chmury.");
+                    
+                    let errorMsg = "Nieznany błąd";
+                    if (error.code === 'permission-denied') {
+                        errorMsg = "BRAK UPRAWNIEŃ DO BAZY DANYCH (Firestore).\n\nTwoja baza danych blokuje dostęp.\nWejdź w Firebase Console -> Firestore Database -> zakładka Rules i zmień:\n'allow read, write: if false;'\nna:\n'allow read, write: if request.auth != null;'";
+                    } else if (error.code === 'failed-precondition') {
+                        errorMsg = "Baza danych nie została utworzona w Firebase Console. Wejdź w 'Firestore Database' i kliknij 'Create Database'.";
+                    } else if (error.code === 'unavailable') {
+                        errorMsg = "Brak połączenia z serwerem. Jeśli jesteś na Vercel, sprawdź czy Twój KLUCZ API w Google Cloud Console nie ma blokady na domenę (HTTP Referrer restrictions). Dodaj domenę vercel.app do dozwolonych.";
+                    } else {
+                        errorMsg = error.message || JSON.stringify(error);
+                    }
+                    
+                    alert(`BŁĄD POBIERANIA DANYCH:\n\n${errorMsg}`);
                 } finally {
                     setIsAppLoaded(true);
                 }
