@@ -43,26 +43,33 @@ const INITIAL_STATE: AppState = {
 
 const App: React.FC = () => {
     const [view, setView] = useState<ViewState>('dashboard');
-    const [state, setState] = useState<AppState>(INITIAL_STATE);
+    
+    // 1. INSTANT LOAD: Initialize state from LocalStorage if available
+    const [state, setState] = useState<AppState>(() => {
+        try {
+            const saved = localStorage.getItem('budget_data');
+            return saved ? JSON.parse(saved) : INITIAL_STATE;
+        } catch (e) {
+            return INITIAL_STATE;
+        }
+    });
     
     // Auth & Loading state
     const [user, setUser] = useState<User | any | null>(null);
-    const [isAppLoaded, setIsAppLoaded] = useState(false);
+    // If we have local data, we consider app loaded immediately (optimistic UI)
+    const [isAppLoaded, setIsAppLoaded] = useState(() => !!localStorage.getItem('budget_data')); 
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
     // Login Form State
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-    
-    // Initialize ID from local storage if available
     const [savedId, setSavedId] = useState<string>(() => localStorage.getItem('budget_user_id') || '');
     const [loginId, setLoginId] = useState(() => localStorage.getItem('budget_user_id') || '');
-    
     const [loginPin, setLoginPin] = useState('');
     const [authError, setAuthError] = useState('');
     const [authLoading, setAuthLoading] = useState(false);
 
-    // --- Authentication & Data Loading ---
+    // --- Authentication & Data Sync ---
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             if (user?.isGuest) return;
@@ -71,40 +78,61 @@ const App: React.FC = () => {
             setIsAuthChecking(false);
 
             if (currentUser) {
-                // User logged in - Fetch data
+                // User logged in - Fetch newest data from Firestore in background
                 try {
                     const docRef = doc(db, 'users', currentUser.uid);
                     const docSnap = await getDoc(docRef);
 
                     if (docSnap.exists()) {
-                        const data = docSnap.data() as AppState;
+                        const cloudData = docSnap.data() as AppState;
+                        // Determine if we should update local state (simple strategy: always trust cloud on load)
+                        // In a real PWA we might compare timestamps, but for now, cloud wins on load.
+                        
                         // Migrations/Safety checks
-                        if (!data.settings) data.settings = INITIAL_STATE.settings;
-                        if (!data.categories) data.categories = DEFAULT_CATEGORIES;
-                        setState(data);
+                        if (!cloudData.settings) cloudData.settings = INITIAL_STATE.settings;
+                        if (!cloudData.categories) cloudData.categories = DEFAULT_CATEGORIES;
+                        
+                        setState(cloudData);
+                        // Update local cache immediately
+                        localStorage.setItem('budget_data', JSON.stringify(cloudData));
                     } else {
-                        // First time user - save initial state
-                        await setDoc(docRef, INITIAL_STATE);
-                        setState(INITIAL_STATE);
+                        // First time user on this cloud account
+                        if (!localStorage.getItem('budget_data')) {
+                            // Only set initial if no local data exists to prevent overwriting
+                            await setDoc(docRef, INITIAL_STATE);
+                            setState(INITIAL_STATE);
+                        } else {
+                            // We have local data (maybe newly registered), push it to cloud
+                            await setDoc(docRef, state);
+                        }
                     }
                 } catch (error: any) {
-                    console.error("Error fetching data:", error);
-                    alert(`Błąd pobierania danych: ${error.message}`);
+                    console.error("Error fetching cloud data:", error);
+                    // Silently fail - we have local data anyway
                 } finally {
                     setIsAppLoaded(true);
                 }
             } else {
-                setIsAppLoaded(false);
+                // User logged out
+                // Only reset loaded state if we don't have local user ID (meaning explicitly logged out)
+                if (!savedId) {
+                    setIsAppLoaded(false);
+                }
             }
         });
 
         return () => unsubscribe();
     }, [user?.isGuest]);
 
-    // --- Data Persistence ---
+    // --- Data Persistence (Local + Cloud) ---
     const isFirstRun = useRef(true);
 
     useEffect(() => {
+        // Always save to LocalStorage for speed
+        if (!isFirstRun.current) {
+             localStorage.setItem('budget_data', JSON.stringify(state));
+        }
+
         if (!user || !isAppLoaded) return;
         if (user.isGuest) return;
 
@@ -113,19 +141,19 @@ const App: React.FC = () => {
             return;
         }
 
-        const saveData = async () => {
+        const saveToCloud = async () => {
             setIsSaving(true);
             try {
                 const docRef = doc(db, 'users', user.uid);
                 await setDoc(docRef, state);
             } catch (error) {
-                console.error("Error saving data:", error);
+                console.error("Error saving data to cloud:", error);
             } finally {
                 setTimeout(() => setIsSaving(false), 500); 
             }
         };
 
-        const timeoutId = setTimeout(saveData, 1000); 
+        const timeoutId = setTimeout(saveToCloud, 2000); // Debounce cloud save to 2 seconds
         return () => clearTimeout(timeoutId);
 
     }, [state, user, isAppLoaded]);
@@ -133,7 +161,6 @@ const App: React.FC = () => {
 
     // --- Custom Auth Handlers ---
     
-    // Helper to transform "janek" -> "janek@budget.local"
     const getEmailFromId = (id: string) => {
         const cleanId = id.trim().toLowerCase().replace(/\s+/g, '.');
         return `${cleanId}@budget.local`;
@@ -146,8 +173,9 @@ const App: React.FC = () => {
 
         const email = getEmailFromId(loginId);
         
-        if (loginPin.length < 6) {
-            setAuthError('Kod dostępu musi mieć minimum 6 znaków.');
+        // Changed to minimum 4 digits
+        if (loginPin.length < 4) {
+            setAuthError('Kod dostępu musi mieć minimum 4 znaki.');
             setAuthLoading(false);
             return;
         }
@@ -155,16 +183,13 @@ const App: React.FC = () => {
         try {
             if (authMode === 'login') {
                 await signInWithEmailAndPassword(auth, email, loginPin);
-                // Save ID for next time only on success
                 localStorage.setItem('budget_user_id', loginId);
                 setSavedId(loginId);
             } else {
-                // Register
                 const userCredential = await createUserWithEmailAndPassword(auth, email, loginPin);
                 await updateProfile(userCredential.user, {
                     displayName: loginId
                 });
-                // Save ID for next time
                 localStorage.setItem('budget_user_id', loginId);
                 setSavedId(loginId);
             }
@@ -175,9 +200,9 @@ const App: React.FC = () => {
             } else if (error.code === 'auth/email-already-in-use') {
                 setAuthError('Ten identyfikator jest już zajęty.');
             } else if (error.code === 'auth/weak-password') {
-                setAuthError('Kod jest za słaby (min. 6 znaków).');
+                setAuthError('Kod jest za słaby (min. 6 znaków w Firebase, ale ustawiliśmy 4).');
             } else {
-                setAuthError('Wystąpił błąd: ' + error.message);
+                setAuthError('Błąd: ' + error.message);
             }
         } finally {
             setAuthLoading(false);
@@ -201,11 +226,13 @@ const App: React.FC = () => {
         setSavedId('');
         setLoginId('');
         localStorage.removeItem('budget_user_id');
+        localStorage.removeItem('budget_data'); // Clear cache on explicit logout
         setLoginPin('');
+        auth.signOut();
     };
 
 
-    // --- Logic Wrappers (Same as before) ---
+    // --- Logic Wrappers ---
     useEffect(() => {
         if (!isAppLoaded) return;
         const payday = state.settings.payday;
@@ -234,7 +261,7 @@ const App: React.FC = () => {
         }
     }, [isAppLoaded, state.settings.payday]);
 
-    // Handlers (Reduced for brevity, logic identical to previous version)
+    // Handlers
     const addIncome = (amount: number, source: 'bank' | 'cash') => {
         setState(prev => ({ ...prev, balance: { ...prev.balance, [source]: prev.balance[source] + amount } }));
     };
@@ -327,9 +354,10 @@ const App: React.FC = () => {
     };
 
     // --- Render Login Screen ---
-    if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Ładowanie...</div>;
+    // Note: We hide checking state if we already have local data to show
+    if (isAuthChecking && !isAppLoaded) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Ładowanie...</div>;
 
-    if (!user) {
+    if (!user && !isAppLoaded) {
         const isReturningUser = authMode === 'login' && savedId;
 
         return (
@@ -353,7 +381,6 @@ const App: React.FC = () => {
                             onClick={() => { 
                                 setAuthMode('register'); 
                                 setAuthError(''); 
-                                // Reset fields if registering new user
                                 if (savedId) {
                                     setLoginId('');
                                 }
@@ -400,7 +427,7 @@ const App: React.FC = () => {
                                 inputMode="numeric"
                                 value={loginPin}
                                 onChange={(e) => setLoginPin(e.target.value)}
-                                placeholder="******"
+                                placeholder="****"
                                 className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors tracking-widest text-center text-lg font-bold"
                                 required
                                 autoFocus={!!isReturningUser}
@@ -438,8 +465,7 @@ const App: React.FC = () => {
         );
     }
 
-    if (!isAppLoaded) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-emerald-600">Pobieranie danych...</div>;
-
+    // Main App UI (Shown if user is logged in OR if we have cached data)
     return (
         <div className="min-h-screen bg-slate-50 max-w-lg mx-auto shadow-2xl overflow-hidden flex flex-col relative">
             
