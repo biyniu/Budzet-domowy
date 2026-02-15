@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://lucide.dev/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#10b981" />
+    <meta name="description" content="Aplikacja do zarządzania budżetem domowym" />
+    <title>Twój Budżet</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#10b981', // Emerald 500
+              secondary: '#3b82f6', // Blue 500
+              danger: '#ef4444', // Red 500
+              dark: '#1e293b', // Slate 800
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="manifest" href="/manifest.json" id="manifest-placeholder">
+    <style>
+      /* Smooth scrolling and disable pull-to-refresh for app-like feel */
+      body {
+        overscroll-behavior-y: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+    "firebase/": "https://esm.sh/firebase@^12.9.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-slate-50 text-slate-900 select-none">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+      // Simple inline manifest generation for demo purposes
+      const manifest = {
+        "name": "Domowy Budżet",
+        "short_name": "Budżet",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#10b981",
+        "icons": [
+          {
+            "src": "https://picsum.photos/192/192",
+            "sizes": "192x192",
+            "type": "image/png"
+          },
+          {
+            "src": "https://picsum.photos/512/512",
+            "sizes": "512x512",
+            "type": "image/png"
+          }
+        ]
+      };
+      const stringManifest = JSON.stringify(manifest);
+      const blob = new Blob([stringManifest], {type: 'application/json'});
+      const manifestURL = URL.createObjectURL(blob);
+      document.getElementById('manifest-placeholder').setAttribute('href', manifestURL);
+
+      // Register Service Worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then(registration => {
+            console.log('SW registered: ', registration);
+          }).catch(registrationError => {
+            console.log('SW registration failed: ', registrationError);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

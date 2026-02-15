@@ -1,0 +1,5 @@
+{
+  "name": "Domowy Budżet PWA",
+  "description": "Aplikacja PWA do zarządzania budżetem domowym z obsługą gotówki, banku, kopert i wydatków stałych.",
+  "requestFramePermissions": []
+}
