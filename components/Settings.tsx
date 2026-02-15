@@ -48,11 +48,18 @@ export const Settings: React.FC<SettingsProps> = ({ payday, onPaydayChange }) =>
 
             {/* Account Management */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
-                <h3 className="font-semibold text-slate-800 mb-2">Konto i Dane</h3>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-emerald-100 text-emerald-600 p-2 rounded-full">
+                        <Icons.CloudCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                        <h3 className="font-semibold text-slate-800">Połączono z chmurą</h3>
+                        <p className="text-xs text-emerald-600 font-medium">Baza danych aktywna</p>
+                    </div>
+                </div>
+                
                 <p className="text-sm text-slate-500 mb-4">
                     Jesteś zalogowany. Twoje dane są bezpiecznie synchronizowane z chmurą <strong>Google Firebase</strong>.
-                    <br/><br/>
-                    Aplikacja nie tworzy plików na Vercel. Wszystkie kwoty znajdują się w bazie danych Firestore.
                 </p>
                 <div className="text-xs text-slate-400 mb-4 break-all bg-slate-50 p-2 rounded border border-slate-100">
                     <span className="font-bold">Twoje ID użytkownika:</span><br/>
@@ -71,7 +78,7 @@ export const Settings: React.FC<SettingsProps> = ({ payday, onPaydayChange }) =>
             </div>
             
             <div className="mt-6 text-center text-xs text-slate-300">
-                Wersja aplikacji: 1.4.0 (Fix: Error Handling)
+                Wersja aplikacji: 1.5.0 (Stable)
             </div>
         </div>
     );

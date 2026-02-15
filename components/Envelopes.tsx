@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Envelope, MoneySource, EnvelopeTransaction } from '../types';
 import { Icons } from '../constants';
@@ -5,31 +6,64 @@ import { Icons } from '../constants';
 interface EnvelopesProps {
     envelopes: Envelope[];
     transactions: EnvelopeTransaction[];
-    onAdd: (name: string, description: string) => void;
+    onAdd: (name: string, description: string, targetAmount: number) => void;
+    onEdit: (id: string, name: string, description: string, allocated: number, targetAmount: number) => void;
     onDelete: (id: string) => void;
     onTransfer: (id: string, amount: number, source: MoneySource) => void;
     onSpend: (id: string, amount: number, note: string) => void;
 }
 
-export const Envelopes: React.FC<EnvelopesProps> = ({ envelopes, transactions, onAdd, onDelete, onTransfer, onSpend }) => {
-    const [isAdding, setIsAdding] = useState(false);
-    const [newName, setNewName] = useState('');
-    const [newDesc, setNewDesc] = useState('');
+export const Envelopes: React.FC<EnvelopesProps> = ({ envelopes, transactions, onAdd, onEdit, onDelete, onTransfer, onSpend }) => {
+    // Adding/Editing State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingEnvelope, setEditingEnvelope] = useState<Envelope | null>(null);
     
-    // State for funding/spending
+    // Form fields
+    const [name, setName] = useState('');
+    const [desc, setDesc] = useState('');
+    const [targetAmount, setTargetAmount] = useState(''); // New field for goal
+    const [currentAmount, setCurrentAmount] = useState(''); // Only used in edit mode
+    
+    // Fund/Spend State
     const [activeEnvelopeId, setActiveEnvelopeId] = useState<string | null>(null);
     const [actionType, setActionType] = useState<'fund' | 'spend'>('fund');
     const [amount, setAmount] = useState('');
     const [fundSource, setFundSource] = useState<MoneySource>('bank');
     const [spendNote, setSpendNote] = useState('');
 
-    const handleCreate = (e: React.FormEvent) => {
+    const openAdd = () => {
+        setEditingEnvelope(null);
+        setName('');
+        setDesc('');
+        setTargetAmount('');
+        setCurrentAmount('0');
+        setIsModalOpen(true);
+    };
+
+    const openEdit = (env: Envelope) => {
+        setEditingEnvelope(env);
+        setName(env.name);
+        setDesc(env.description || '');
+        setTargetAmount(env.targetAmount ? env.targetAmount.toString() : '');
+        setCurrentAmount(env.allocated.toString());
+        setIsModalOpen(true);
+    };
+
+    const handleSaveEnvelope = (e: React.FormEvent) => {
         e.preventDefault();
-        if (newName) {
-            onAdd(newName, newDesc);
-            setNewName('');
-            setNewDesc('');
-            setIsAdding(false);
+        if (name) {
+            const targetVal = targetAmount ? parseFloat(targetAmount.replace(',', '.').replace(/\s/g, '')) : 0;
+
+            if (editingEnvelope) {
+                // Edit existing
+                const val = parseFloat(currentAmount.replace(',', '.'));
+                const validAllocated = isNaN(val) ? editingEnvelope.allocated : val;
+                onEdit(editingEnvelope.id, name, desc, validAllocated, isNaN(targetVal) ? 0 : targetVal);
+            } else {
+                // Add new
+                onAdd(name, desc, isNaN(targetVal) ? 0 : targetVal);
+            }
+            setIsModalOpen(false);
         }
     };
 
@@ -65,51 +99,85 @@ export const Envelopes: React.FC<EnvelopesProps> = ({ envelopes, transactions, o
 
     return (
         <div className="pb-24">
-            <h2 className="text-xl font-bold text-slate-800 mb-6">Moje Koperty</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-6">Moje Cele i Koperty</h2>
 
-            <div className="grid grid-cols-2 gap-4 mb-8">
-                {envelopes.map((env) => (
-                    <div key={env.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col relative group">
-                        <button 
-                            onClick={() => onDelete(env.id)}
-                            className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                        >
-                            <Icons.Trash className="w-4 h-4" />
-                        </button>
-                        
-                        <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-3">
-                            <Icons.Envelope className="w-5 h-5" />
-                        </div>
-                        
-                        <h3 className="font-semibold text-slate-800 truncate">{env.name}</h3>
-                        <p className="text-xs text-slate-500 mb-3 h-4 truncate">{env.description || 'Bez opisu'}</p>
-                        
-                        <div className="mt-auto">
-                            <p className="text-lg font-bold text-slate-900 mb-2">{env.allocated.toFixed(2)} zł</p>
-                            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-4 mb-8">
+                {envelopes.map((env) => {
+                    const hasGoal = env.targetAmount && env.targetAmount > 0;
+                    const progress = hasGoal ? Math.min((env.allocated / (env.targetAmount || 1)) * 100, 100) : 0;
+                    const remaining = hasGoal ? Math.max((env.targetAmount || 0) - env.allocated, 0) : 0;
+
+                    return (
+                        <div key={env.id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative group overflow-hidden">
+                            {/* Header Row */}
+                            <div className="flex justify-between items-start mb-3 relative z-10">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${hasGoal ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
+                                        <Icons.Envelope className="w-5 h-5" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <h3 className="font-bold text-slate-800 truncate text-lg">{env.name}</h3>
+                                        <p className="text-xs text-slate-500 truncate">{env.description || (hasGoal ? 'Cel oszczędnościowy' : 'Koperta wydatków')}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={() => openEdit(env)} className="text-slate-300 hover:text-blue-500 p-2"><Icons.Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => onDelete(env.id)} className="text-slate-300 hover:text-red-500 p-2"><Icons.Trash className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+
+                            {/* Amount Row */}
+                            <div className="flex items-baseline gap-2 mb-3 relative z-10">
+                                <span className="text-2xl font-bold text-slate-900">{env.allocated.toFixed(2)} zł</span>
+                                {hasGoal && <span className="text-xs text-slate-400 font-medium">z {env.targetAmount?.toFixed(2)} zł</span>}
+                            </div>
+
+                            {/* Progress Bar (Only if goal exists) */}
+                            {hasGoal && (
+                                <div className="mb-4 relative z-10">
+                                    <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                                        <span>Postęp: {progress.toFixed(0)}%</span>
+                                        {remaining > 0 ? <span className="text-indigo-500">Brakuje: {remaining.toFixed(2)} zł</span> : <span className="text-emerald-500">Cel osiągnięty!</span>}
+                                    </div>
+                                    <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full transition-all duration-700 ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
+                                            style={{ width: `${progress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Buttons */}
+                            <div className="flex gap-2 relative z-10 mt-auto">
                                 <button 
                                     onClick={() => openAction(env.id, 'fund')}
-                                    className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded border border-emerald-100 hover:bg-emerald-100"
+                                    className="flex-1 py-2 bg-emerald-50 text-emerald-700 text-sm font-bold rounded-lg border border-emerald-100 hover:bg-emerald-100 transition-colors"
                                 >
                                     + Wpłać
                                 </button>
                                 <button 
                                     onClick={() => openAction(env.id, 'spend')}
-                                    className="flex-1 py-1.5 bg-slate-50 text-slate-600 text-xs font-bold rounded border border-slate-200 hover:bg-slate-100"
+                                    className="flex-1 py-2 bg-slate-50 text-slate-600 text-sm font-bold rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors"
                                 >
                                     - Wydaj
                                 </button>
                             </div>
+
+                            {/* Decorative Background for Goals */}
+                            {hasGoal && (
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full blur-2xl -mr-8 -mt-8 opacity-50 z-0"></div>
+                            )}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
                 
                 <button 
-                    onClick={() => setIsAdding(true)}
-                    className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center min-h-[160px] text-slate-400 hover:bg-slate-100 hover:border-slate-400 transition-colors"
+                    onClick={openAdd}
+                    className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center min-h-[120px] text-slate-400 hover:bg-slate-100 hover:border-slate-400 transition-colors"
                 >
                     <Icons.Plus className="w-8 h-8 mb-2" />
-                    <span className="text-sm font-medium">Nowa koperta</span>
+                    <span className="text-sm font-medium">Nowy Cel / Koperta</span>
                 </button>
             </div>
 
@@ -138,27 +206,65 @@ export const Envelopes: React.FC<EnvelopesProps> = ({ envelopes, transactions, o
                 )}
             </div>
 
-            {/* Modal for Creating Envelope */}
-            {isAdding && (
+            {/* Modal for Creating/Editing Envelope */}
+            {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-                    <form onSubmit={handleCreate} className="bg-white w-full max-w-sm rounded-2xl p-6 animate-in slide-in-from-bottom-10 shadow-2xl">
-                        <h3 className="text-lg font-bold mb-4">Stwórz nową kopertę</h3>
-                        <input
-                            className="w-full border border-slate-300 bg-white text-slate-900 p-3 rounded-lg mb-3 outline-emerald-500 placeholder-slate-400"
-                            placeholder="Nazwa (np. Wakacje)"
-                            value={newName}
-                            onChange={(e) => setNewName(e.target.value)}
-                            required
-                        />
-                         <input
-                            className="w-full border border-slate-300 bg-white text-slate-900 p-3 rounded-lg mb-4 outline-emerald-500 placeholder-slate-400"
-                            placeholder="Opis (opcjonalne)"
-                            value={newDesc}
-                            onChange={(e) => setNewDesc(e.target.value)}
-                        />
+                    <form onSubmit={handleSaveEnvelope} className="bg-white w-full max-w-sm rounded-2xl p-6 animate-in slide-in-from-bottom-10 shadow-2xl">
+                        <h3 className="text-lg font-bold mb-4">{editingEnvelope ? 'Edytuj kopertę' : 'Nowa koperta / Cel'}</h3>
+                        
+                        <div className="space-y-3 mb-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Nazwa</label>
+                                <input
+                                    className="w-full border border-slate-300 bg-white text-slate-900 p-3 rounded-lg outline-emerald-500 placeholder-slate-400"
+                                    placeholder="np. Wakacje, Mechanik"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Cel Oszczędnościowy (opcjonalne)</label>
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="w-full border border-slate-300 bg-white text-slate-900 p-3 rounded-lg outline-emerald-500 placeholder-slate-400"
+                                    placeholder="0.00"
+                                    value={targetAmount}
+                                    onChange={(e) => setTargetAmount(e.target.value)}
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">Wpisz kwotę, aby zobaczyć pasek postępu.</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Opis</label>
+                                <input
+                                    className="w-full border border-slate-300 bg-white text-slate-900 p-3 rounded-lg outline-emerald-500 placeholder-slate-400"
+                                    placeholder="Krótki opis"
+                                    value={desc}
+                                    onChange={(e) => setDesc(e.target.value)}
+                                />
+                            </div>
+
+                            {/* Allow manual edit of amount only in edit mode */}
+                            {editingEnvelope && (
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    <label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Korekta stanu (ręczna)</label>
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="w-full border border-slate-300 bg-white text-slate-900 p-2 rounded outline-emerald-500"
+                                        value={currentAmount}
+                                        onChange={(e) => setCurrentAmount(e.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
                         <div className="flex gap-3">
-                            <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-3 bg-slate-100 rounded-lg font-medium text-slate-700">Anuluj</button>
-                            <button type="submit" className="flex-1 py-3 bg-slate-900 text-white rounded-lg font-medium">Stwórz</button>
+                            <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-slate-100 rounded-lg font-medium text-slate-700">Anuluj</button>
+                            <button type="submit" className="flex-1 py-3 bg-slate-900 text-white rounded-lg font-medium">Zapisz</button>
                         </div>
                     </form>
                 </div>

@@ -1,4 +1,5 @@
 
+
 export interface AccountBalance {
     bank: number;
     cash: number;
@@ -27,6 +28,7 @@ export interface Envelope {
     id: string;
     name: string;
     allocated: number; // How much money is currently inside
+    targetAmount?: number; // New: Goal amount for gamification
     description?: string;
     icon?: string;
 }
@@ -46,7 +48,7 @@ export interface Category {
     color: string;
 }
 
-export type ViewState = 'dashboard' | 'fixed' | 'envelopes' | 'expenses' | 'history' | 'settings';
+export type ViewState = 'dashboard' | 'fixed' | 'envelopes' | 'expenses' | 'history' | 'settings' | 'reports';
 
 export interface AppState {
     balance: AccountBalance;

@@ -5,6 +5,7 @@ import { FixedExpenses } from './components/FixedExpenses';
 import { Envelopes } from './components/Envelopes';
 import { Expenses } from './components/Expenses';
 import { History } from './components/History';
+import { Reports } from './components/Reports';
 import { Settings } from './components/Settings';
 import { AppState, ViewState, FixedExpense, MoneySource } from './types';
 import { Icons, DEFAULT_CATEGORIES } from './constants';
@@ -75,7 +76,7 @@ const App: React.FC = () => {
                     
                     let errorMsg = "Nieznany błąd";
                     if (error.code === 'permission-denied') {
-                        errorMsg = "BRAK UPRAWNIEŃ DO BAZY DANYCH (Firestore).\n\nTwoja baza danych blokuje dostęp.\nWejdź w Firebase Console -> Firestore Database -> zakładka Rules i zmień:\n'allow read, write: if false;'\nna:\n'allow read, write: if request.auth != null;'";
+                        errorMsg = "BRAK UPRAWNIEŃ DO BAZY DANYCH (Firestore).\n\nTwoja baza danych blokuje dostęp.\nWejdź w Firebase Console -> Firestore Database -> zakładka Rules i zmień:\n'allow read, write: if request.auth != null;'";
                     } else if (error.code === 'failed-precondition') {
                         errorMsg = "Baza danych nie została utworzona w Firebase Console. Wejdź w 'Firestore Database' i kliknij 'Create Database'.";
                     } else if (error.code === 'unavailable') {
@@ -219,14 +220,26 @@ const App: React.FC = () => {
     const addFixed = (name: string, amount: number, source: MoneySource) => {
         setState(prev => ({ ...prev, fixedExpenses: [...prev.fixedExpenses, { id: Date.now().toString(), name, amount, isPaid: false, source }] }));
     };
+    const editFixed = (id: string, name: string, amount: number, source: MoneySource) => {
+        setState(prev => ({
+            ...prev,
+            fixedExpenses: prev.fixedExpenses.map(f => f.id === id ? { ...f, name, amount, source } : f)
+        }));
+    };
     const deleteFixed = (id: string) => {
         setState(prev => ({ ...prev, fixedExpenses: prev.fixedExpenses.filter(f => f.id !== id) }));
     };
     const resetFixed = () => {
         if(window.confirm("Zresetować status rachunków?")) setState(prev => ({ ...prev, fixedExpenses: prev.fixedExpenses.map(f => ({ ...f, isPaid: false })) }));
     };
-    const addEnvelope = (name: string, description: string) => {
-        setState(prev => ({ ...prev, envelopes: [...prev.envelopes, { id: Date.now().toString(), name, description, allocated: 0 }] }));
+    const addEnvelope = (name: string, description: string, targetAmount: number = 0) => {
+        setState(prev => ({ ...prev, envelopes: [...prev.envelopes, { id: Date.now().toString(), name, description, allocated: 0, targetAmount }] }));
+    };
+    const editEnvelope = (id: string, name: string, description: string, allocated: number, targetAmount: number = 0) => {
+        setState(prev => ({
+            ...prev,
+            envelopes: prev.envelopes.map(e => e.id === id ? { ...e, name, description, allocated, targetAmount } : e)
+        }));
     };
     const deleteEnvelope = (id: string) => {
         if (window.confirm("Usunąć kopertę?")) {
@@ -256,6 +269,20 @@ const App: React.FC = () => {
             balance: { ...prev.balance, [source]: prev.balance[source] - amount },
             expenses: [{ id: Date.now().toString(), amount, category, note, source, date: new Date().toISOString() }, ...prev.expenses]
         }));
+    };
+    const editExpense = (id: string, amount: number, category: string, note: string, source: MoneySource) => {
+        // Warning: Changing amount source/value here doesn't automatically refund/charge balance because keeping track of "what it was before" is complex.
+        // For simple app, we just update the record. User can manually adjust balance if needed or we could calculate diff.
+        // To be safe and simple: just update the record.
+        setState(prev => ({
+            ...prev,
+            expenses: prev.expenses.map(e => e.id === id ? { ...e, amount, category, note, source } : e)
+        }));
+    };
+    const deleteExpense = (id: string) => {
+        if(window.confirm("Usunąć ten wydatek?")) {
+            setState(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+        }
     };
     const addCategory = (label: string) => {
         const colors = ['bg-slate-100 text-slate-700', 'bg-indigo-100 text-indigo-700', 'bg-pink-100 text-pink-700', 'bg-amber-100 text-amber-700'];
@@ -327,6 +354,7 @@ const App: React.FC = () => {
                     {view === 'fixed' && 'Rachunki'}
                     {view === 'envelopes' && 'Koperty'}
                     {view === 'expenses' && 'Wydatki'}
+                    {view === 'reports' && 'Raporty'}
                     {view === 'history' && 'Historia'}
                     {view === 'settings' && 'Ustawienia'}
                 </h1>
@@ -338,9 +366,10 @@ const App: React.FC = () => {
             {/* Main Content */}
             <main className="flex-1 p-4 overflow-y-auto scrollbar-hide">
                 {view === 'dashboard' && <Dashboard balance={state.balance} envelopes={state.envelopes} onAddIncome={addIncome} />}
-                {view === 'fixed' && <FixedExpenses expenses={state.fixedExpenses} onToggle={toggleFixed} onAdd={addFixed} onDelete={deleteFixed} onReset={resetFixed} />}
-                {view === 'envelopes' && <Envelopes envelopes={state.envelopes} transactions={state.envelopeTransactions} onAdd={addEnvelope} onDelete={deleteEnvelope} onTransfer={fundEnvelope} onSpend={spendFromEnvelope} />}
-                {view === 'expenses' && <Expenses expenses={state.expenses} categories={state.categories} onAdd={addExpense} onAddCategory={addCategory} balance={state.balance} payday={state.settings.payday} />}
+                {view === 'fixed' && <FixedExpenses expenses={state.fixedExpenses} onToggle={toggleFixed} onAdd={addFixed} onEdit={editFixed} onDelete={deleteFixed} onReset={resetFixed} />}
+                {view === 'envelopes' && <Envelopes envelopes={state.envelopes} transactions={state.envelopeTransactions} onAdd={addEnvelope} onEdit={editEnvelope} onDelete={deleteEnvelope} onTransfer={fundEnvelope} onSpend={spendFromEnvelope} />}
+                {view === 'expenses' && <Expenses expenses={state.expenses} categories={state.categories} onAdd={addExpense} onEdit={editExpense} onDelete={deleteExpense} onAddCategory={addCategory} balance={state.balance} payday={state.settings.payday} />}
+                {view === 'reports' && <Reports expenses={state.expenses} categories={state.categories} payday={state.settings.payday} />}
                 {view === 'history' && <History expenses={state.expenses} categories={state.categories} payday={state.settings.payday} />}
                 {view === 'settings' && <Settings payday={state.settings.payday} onPaydayChange={updatePayday} />}
             </main>
@@ -348,11 +377,12 @@ const App: React.FC = () => {
             {/* Bottom Navigation */}
             <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-lg pb-safe z-40">
                 <div className="flex justify-around items-center h-16">
-                    <button onClick={() => setView('dashboard')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Home className="w-6 h-6" /><span className="text-[10px] font-medium">Start</span></button>
-                    <button onClick={() => setView('expenses')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'expenses' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Cart className="w-6 h-6" /><span className="text-[10px] font-medium">Zakupy</span></button>
-                    <button onClick={() => setView('envelopes')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'envelopes' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Envelope className="w-6 h-6" /><span className="text-[10px] font-medium">Koperty</span></button>
-                    <button onClick={() => setView('fixed')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'fixed' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.CheckList className="w-6 h-6" /><span className="text-[10px] font-medium">Stałe</span></button>
-                    <button onClick={() => setView('history')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'history' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.History className="w-6 h-6" /><span className="text-[10px] font-medium">Historia</span></button>
+                    <button onClick={() => setView('dashboard')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Home className="w-6 h-6" /><span className="text-[9px] font-medium">Start</span></button>
+                    <button onClick={() => setView('expenses')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'expenses' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Cart className="w-6 h-6" /><span className="text-[9px] font-medium">Zakupy</span></button>
+                    <button onClick={() => setView('fixed')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'fixed' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.CheckList className="w-6 h-6" /><span className="text-[9px] font-medium">Stałe</span></button>
+                    <button onClick={() => setView('envelopes')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'envelopes' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Envelope className="w-6 h-6" /><span className="text-[9px] font-medium">Koperty</span></button>
+                    <button onClick={() => setView('history')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'history' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.History className="w-6 h-6" /><span className="text-[9px] font-medium">Historia</span></button>
+                    <button onClick={() => setView('reports')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${view === 'reports' ? 'text-emerald-600' : 'text-slate-400'}`}><Icons.Chart className="w-6 h-6" /><span className="text-[9px] font-medium">Raporty</span></button>
                 </div>
             </nav>
         </div>

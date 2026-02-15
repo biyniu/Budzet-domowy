@@ -7,28 +7,53 @@ interface ExpensesProps {
     expenses: ExpenseRecord[];
     categories: Category[];
     onAdd: (amount: number, category: string, note: string, source: MoneySource) => void;
+    onEdit: (id: string, amount: number, category: string, note: string, source: MoneySource) => void;
+    onDelete: (id: string) => void;
     onAddCategory: (label: string) => void;
     balance: { bank: number, cash: number };
     payday: number;
 }
 
-export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd, onAddCategory, balance, payday }) => {
+export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd, onEdit, onDelete, onAddCategory, balance, payday }) => {
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
+
+    // Form Fields
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState('');
     const [note, setNote] = useState('');
     const [source, setSource] = useState<MoneySource>('bank');
-    const [showAdd, setShowAdd] = useState(false);
     
     // New category state
     const [isCreatingCategory, setIsCreatingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
-    // Set default category when modal opens or categories load
+    // Set default category when modal opens
     React.useEffect(() => {
-        if (categories.length > 0 && !category) {
-            setCategory(categories[0].id);
+        if (isModalOpen && !editingExpense) {
+             if (categories.length > 0 && !category) {
+                setCategory(categories[0].id);
+            }
+            setSource('bank'); // Default source for new
         }
-    }, [categories, category]);
+    }, [isModalOpen, editingExpense, categories, category]);
+
+    const openAdd = () => {
+        setEditingExpense(null);
+        setAmount('');
+        setNote('');
+        setIsModalOpen(true);
+    };
+
+    const openEdit = (exp: ExpenseRecord) => {
+        setEditingExpense(exp);
+        setAmount(exp.amount.toString());
+        setCategory(exp.category);
+        setNote(exp.note || '');
+        setSource(exp.source);
+        setIsModalOpen(true);
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -36,10 +61,12 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
         const val = parseFloat(sanitized);
 
         if (!isNaN(val) && val > 0) {
-            onAdd(val, category, note, source);
-            setAmount('');
-            setNote('');
-            setShowAdd(false);
+            if (editingExpense) {
+                onEdit(editingExpense.id, val, category, note, source);
+            } else {
+                onAdd(val, category, note, source);
+            }
+            setIsModalOpen(false);
         }
     };
 
@@ -49,7 +76,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
             onAddCategory(newCategoryName.trim());
             setNewCategoryName('');
             setIsCreatingCategory(false);
-            // Optionally auto-select the new one, but for now user can click it
         }
     };
 
@@ -103,12 +129,12 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
                 {sortedExpenses.map((exp) => {
                     const cat = categories.find(c => c.id === exp.category) || categories[0] || { label: 'Inne', color: 'bg-gray-100' };
                     return (
-                        <div key={exp.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
-                            <div className="flex items-center gap-3">
+                        <div key={exp.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group">
+                            <div className="flex items-center gap-3 overflow-hidden">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${cat.color}`}>
                                     {cat.label.substring(0, 2).toUpperCase()}
                                 </div>
-                                <div className="overflow-hidden">
+                                <div className="overflow-hidden min-w-0">
                                     <p className="font-medium text-slate-800 truncate">{cat.label}</p>
                                     <div className="flex items-center gap-2 text-xs text-slate-500">
                                         <span>{new Date(exp.date).toLocaleDateString('pl-PL')}</span>
@@ -121,7 +147,18 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
                                     {exp.note && <p className="text-xs text-slate-400 italic truncate">{exp.note}</p>}
                                 </div>
                             </div>
-                            <span className="font-bold text-slate-900 whitespace-nowrap">-{exp.amount.toFixed(2)} zł</span>
+                            
+                            <div className="flex items-center gap-2 pl-2 shrink-0">
+                                <span className="font-bold text-slate-900 whitespace-nowrap">-{exp.amount.toFixed(2)} zł</span>
+                                <div className="flex gap-1 ml-1">
+                                     <button onClick={() => openEdit(exp)} className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-slate-50 rounded">
+                                        <Icons.Pencil className="w-4 h-4" />
+                                     </button>
+                                     <button onClick={() => onDelete(exp.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-slate-50 rounded">
+                                        <Icons.Trash className="w-4 h-4" />
+                                     </button>
+                                </div>
+                            </div>
                         </div>
                     );
                 })}
@@ -138,15 +175,15 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
             {/* Fixed FAB Button - Moved slightly higher to avoid conflict with nav */}
             <div className="fixed bottom-24 right-4 z-30">
                 <button
-                    onClick={() => setShowAdd(true)}
+                    onClick={openAdd}
                     className="bg-emerald-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all border-2 border-white"
                 >
                     <Icons.Plus className="w-6 h-6" />
                 </button>
             </div>
 
-            {/* Add Modal Overlay */}
-            {showAdd && (
+            {/* Add/Edit Modal Overlay */}
+            {isModalOpen && (
                 <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm">
                     {/* Modal Content */}
                     <form 
@@ -154,8 +191,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
                         className="bg-white w-full max-w-md h-[90vh] sm:h-auto sm:rounded-2xl rounded-t-2xl p-6 animate-in slide-in-from-bottom-full duration-300 flex flex-col"
                     >
                         <div className="flex justify-between items-center mb-6 shrink-0">
-                            <h3 className="text-xl font-bold text-slate-800">Nowy wydatek</h3>
-                            <button type="button" onClick={() => setShowAdd(false)} className="p-2 -mr-2 text-slate-400 hover:text-slate-600">✕</button>
+                            <h3 className="text-xl font-bold text-slate-800">
+                                {editingExpense ? 'Edytuj wydatek' : 'Nowy wydatek'}
+                            </h3>
+                            <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 -mr-2 text-slate-400 hover:text-slate-600">✕</button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto">
@@ -274,7 +313,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, categories, onAdd,
                         {/* Submit Button */}
                         <div className="mt-4 shrink-0">
                             <button type="submit" className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform">
-                                Zatwierdź
+                                {editingExpense ? 'Zapisz zmiany' : 'Zatwierdź'}
                             </button>
                         </div>
                     </form>
