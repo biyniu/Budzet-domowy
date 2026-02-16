@@ -16,10 +16,13 @@ import {
     signInWithEmailAndPassword, 
     createUserWithEmailAndPassword, 
     onAuthStateChanged, 
+    sendPasswordResetEmail,
     User,
-    updateProfile
+    updateProfile,
+    updatePassword,
+    deleteUser
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 const DEFAULT_FIXED: FixedExpense[] = [
     { id: '1', name: 'Czynsz', amount: 0, isPaid: false, source: 'bank' },
@@ -64,10 +67,11 @@ const App: React.FC = () => {
 
     // Login Form State
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-    const [savedId, setSavedId] = useState<string>(() => localStorage.getItem('budget_user_id') || '');
-    const [loginId, setLoginId] = useState(() => localStorage.getItem('budget_user_id') || '');
-    const [loginPin, setLoginPin] = useState('');
+    const [savedEmail, setSavedEmail] = useState<string>(() => localStorage.getItem('budget_user_email') || '');
+    const [loginEmail, setLoginEmail] = useState(() => localStorage.getItem('budget_user_email') || '');
+    const [loginPassword, setLoginPassword] = useState('');
     const [authError, setAuthError] = useState('');
+    const [authSuccess, setAuthSuccess] = useState('');
     const [authLoading, setAuthLoading] = useState(false);
 
     // --- Authentication & Data Sync ---
@@ -109,7 +113,7 @@ const App: React.FC = () => {
                     setIsAppLoaded(true);
                 }
             } else {
-                if (!savedId) {
+                if (!savedEmail) {
                     setIsAppLoaded(false);
                 }
             }
@@ -153,50 +157,134 @@ const App: React.FC = () => {
 
 
     // --- Custom Auth Handlers ---
-    const getEmailFromId = (id: string) => {
-        const cleanId = id.trim().toLowerCase().replace(/\s+/g, '.');
-        return `${cleanId}@budget.local`;
-    };
-
     const handleAuthSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setAuthError('');
+        setAuthSuccess('');
         setAuthLoading(true);
 
-        const email = getEmailFromId(loginId);
+        const email = loginEmail.trim();
         
-        if (loginPin.length < 4) {
-            setAuthError('Kod dostępu musi mieć minimum 4 znaki.');
+        if (loginPassword.length < 6) {
+            setAuthError('Hasło musi mieć minimum 6 znaków.');
             setAuthLoading(false);
             return;
         }
 
         try {
             if (authMode === 'login') {
-                await signInWithEmailAndPassword(auth, email, loginPin);
-                localStorage.setItem('budget_user_id', loginId);
-                setSavedId(loginId);
+                await signInWithEmailAndPassword(auth, email, loginPassword);
+                localStorage.setItem('budget_user_email', email);
+                setSavedEmail(email);
             } else {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, loginPin);
+                const userCredential = await createUserWithEmailAndPassword(auth, email, loginPassword);
+                // Set Display Name as the part before @
+                const displayName = email.split('@')[0];
                 await updateProfile(userCredential.user, {
-                    displayName: loginId
+                    displayName: displayName
                 });
-                localStorage.setItem('budget_user_id', loginId);
-                setSavedId(loginId);
+                localStorage.setItem('budget_user_email', email);
+                setSavedEmail(email);
             }
         } catch (error: any) {
             console.error("Auth error:", error);
             if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
-                setAuthError('Błędny identyfikator lub kod.');
+                setAuthError('Błędny email lub hasło.');
             } else if (error.code === 'auth/email-already-in-use') {
-                setAuthError('Ten identyfikator jest już zajęty.');
+                setAuthError('Ten email jest już zajęty.');
             } else if (error.code === 'auth/weak-password') {
-                setAuthError('Kod jest za słaby.');
+                setAuthError('Hasło jest za słabe (min. 6 znaków).');
+            } else if (error.code === 'auth/invalid-email') {
+                setAuthError('Nieprawidłowy format adresu email.');
             } else {
                 setAuthError('Błąd: ' + error.message);
             }
         } finally {
             setAuthLoading(false);
+        }
+    };
+    
+    // Password Reset Logic
+    const handleResetPassword = async () => {
+        const email = loginEmail.trim();
+        if (!email) {
+            setAuthError("Wpisz adres email, aby zresetować hasło.");
+            return;
+        }
+        if (!email.includes('@') || !email.includes('.')) {
+            setAuthError("Wpisz prawidłowy adres email.");
+            return;
+        }
+
+        setAuthLoading(true);
+        setAuthError('');
+        setAuthSuccess('');
+
+        try {
+            await sendPasswordResetEmail(auth, email);
+            setAuthSuccess(`Link do resetu hasła został wysłany na: ${email}`);
+            setAuthLoading(false);
+        } catch (error: any) {
+            setAuthLoading(false);
+            if (error.code === 'auth/user-not-found') {
+                setAuthError("Nie znaleziono użytkownika o takim adresie email.");
+            } else if (error.code === 'auth/invalid-email') {
+                setAuthError("Nieprawidłowy format adresu email.");
+            } else {
+                setAuthError("Błąd wysyłania emaila: " + error.message);
+            }
+        }
+    };
+    
+    // Change PIN/Password Logic
+    const handleChangePin = async (newPin: string): Promise<boolean> => {
+        if (!user || user.isGuest) return false;
+        try {
+            await updatePassword(user, newPin);
+            return true;
+        } catch (e: any) {
+            console.error("PIN Change error", e);
+            alert("Błąd zmiany hasła: " + e.message); 
+            return false;
+        }
+    };
+
+    // Delete Account Logic
+    const handleDeleteAccount = async (): Promise<void> => {
+        if (!user || user.isGuest) return;
+
+        try {
+            const uid = user.uid;
+            
+            // 1. Delete Firestore Data
+            await deleteDoc(doc(db, 'users', uid));
+            
+            // 2. Delete Authentication Account
+            // Note: This requires the user to have signed in recently.
+            await deleteUser(user);
+            
+            // 3. Clean Local Data
+            localStorage.removeItem('budget_data');
+            localStorage.removeItem('budget_user_email');
+            
+            // 4. Reset State
+            setUser(null);
+            setState(INITIAL_STATE);
+            setSavedEmail('');
+            setLoginEmail('');
+            setLoginPassword('');
+            setView('dashboard');
+            
+            alert("Twoje konto i wszystkie dane zostały usunięte.");
+            
+        } catch (error: any) {
+            console.error("Delete Account Error:", error);
+            if (error.code === 'auth/requires-recent-login') {
+                alert("Ze względów bezpieczeństwa, aby usunąć konto, musisz się wylogować i zalogować ponownie.");
+                auth.signOut();
+            } else {
+                alert("Wystąpił błąd podczas usuwania konta: " + error.message);
+            }
         }
     };
 
@@ -214,11 +302,11 @@ const App: React.FC = () => {
     };
 
     const handleSwitchAccount = () => {
-        setSavedId('');
-        setLoginId('');
-        localStorage.removeItem('budget_user_id');
+        setSavedEmail('');
+        setLoginEmail('');
+        localStorage.removeItem('budget_user_email');
         localStorage.removeItem('budget_data'); 
-        setLoginPin('');
+        setLoginPassword('');
         auth.signOut();
     };
 
@@ -252,18 +340,10 @@ const App: React.FC = () => {
         }
     }, [isAppLoaded, state.settings.payday]);
 
-    // Handlers
+    // Handlers (Reduced for brevity - same logic as before, just kept in place)
     const addIncome = (amount: number, source: 'bank' | 'cash', dateStr?: string) => {
-        // Use provided date or fallback to current time
         const entryDate = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
-
-        const newIncome: IncomeRecord = {
-            id: Date.now().toString(),
-            amount,
-            date: entryDate,
-            source
-        };
-
+        const newIncome: IncomeRecord = { id: Date.now().toString(), amount, date: entryDate, source };
         setState(prev => ({
             ...prev,
             balance: { ...prev.balance, [source]: prev.balance[source] + amount },
@@ -271,23 +351,14 @@ const App: React.FC = () => {
         }));
     };
     
-    // New: Edit Income
     const editIncome = (id: string, amount: number, source: MoneySource, date: string) => {
         setState(prev => {
             const oldIncome = prev.incomes.find(i => i.id === id);
             if (!oldIncome) return prev;
-
-            // Revert old balance effect
             let newBank = prev.balance.bank;
             let newCash = prev.balance.cash;
-            
-            if (oldIncome.source === 'bank') newBank -= oldIncome.amount;
-            else newCash -= oldIncome.amount;
-
-            // Apply new balance effect
-            if (source === 'bank') newBank += amount;
-            else newCash += amount;
-
+            if (oldIncome.source === 'bank') newBank -= oldIncome.amount; else newCash -= oldIncome.amount;
+            if (source === 'bank') newBank += amount; else newCash += amount;
             return {
                 ...prev,
                 balance: { bank: newBank, cash: newCash },
@@ -296,19 +367,14 @@ const App: React.FC = () => {
         });
     };
 
-    // New: Delete Income
     const deleteIncome = (id: string) => {
         if(!window.confirm("Czy na pewno chcesz usunąć ten wpływ?")) return;
         setState(prev => {
             const inc = prev.incomes.find(i => i.id === id);
             if (!inc) return prev;
-
             let newBank = prev.balance.bank;
             let newCash = prev.balance.cash;
-            
-            if (inc.source === 'bank') newBank -= inc.amount;
-            else newCash -= inc.amount;
-
+            if (inc.source === 'bank') newBank -= inc.amount; else newCash -= inc.amount;
             return {
                 ...prev,
                 balance: { bank: newBank, cash: newCash },
@@ -333,13 +399,13 @@ const App: React.FC = () => {
             };
         });
     };
-    const addFixed = (name: string, amount: number, source: MoneySource) => {
-        setState(prev => ({ ...prev, fixedExpenses: [...prev.fixedExpenses, { id: Date.now().toString(), name, amount, isPaid: false, source }] }));
+    const addFixed = (name: string, amount: number, source: MoneySource, dueDate?: number) => {
+        setState(prev => ({ ...prev, fixedExpenses: [...prev.fixedExpenses, { id: Date.now().toString(), name, amount, isPaid: false, source, dueDate }] }));
     };
-    const editFixed = (id: string, name: string, amount: number, source: MoneySource) => {
+    const editFixed = (id: string, name: string, amount: number, source: MoneySource, dueDate?: number) => {
         setState(prev => ({
             ...prev,
-            fixedExpenses: prev.fixedExpenses.map(f => f.id === id ? { ...f, name, amount, source } : f)
+            fixedExpenses: prev.fixedExpenses.map(f => f.id === id ? { ...f, name, amount, source, dueDate } : f)
         }));
     };
     const deleteFixed = (id: string) => {
@@ -390,17 +456,10 @@ const App: React.FC = () => {
         setState(prev => {
              const oldExp = prev.expenses.find(e => e.id === id);
              if (!oldExp) return prev;
-
-             // Revert old
              let newBank = prev.balance.bank;
              let newCash = prev.balance.cash;
-             if (oldExp.source === 'bank') newBank += oldExp.amount;
-             else newCash += oldExp.amount;
-
-             // Apply new
-             if (source === 'bank') newBank -= amount;
-             else newCash -= amount;
-
+             if (oldExp.source === 'bank') newBank += oldExp.amount; else newCash += oldExp.amount;
+             if (source === 'bank') newBank -= amount; else newCash -= amount;
              return {
                  ...prev,
                  balance: { bank: newBank, cash: newCash },
@@ -413,12 +472,9 @@ const App: React.FC = () => {
             setState(prev => {
                 const exp = prev.expenses.find(e => e.id === id);
                 if (!exp) return prev;
-
                 let newBank = prev.balance.bank;
                 let newCash = prev.balance.cash;
-                if (exp.source === 'bank') newBank += exp.amount;
-                else newCash += exp.amount;
-
+                if (exp.source === 'bank') newBank += exp.amount; else newCash += exp.amount;
                 return {
                     ...prev,
                     balance: { bank: newBank, cash: newCash },
@@ -438,7 +494,7 @@ const App: React.FC = () => {
     if (isAuthChecking && !isAppLoaded) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Ładowanie...</div>;
 
     if (!user && !isAppLoaded) {
-        const isReturningUser = authMode === 'login' && savedId;
+        const isReturningUser = authMode === 'login' && savedEmail;
 
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
@@ -451,7 +507,7 @@ const App: React.FC = () => {
                     
                     <div className="flex bg-slate-100 p-1 rounded-lg mb-6">
                         <button 
-                            onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                            onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }}
                             className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${authMode === 'login' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Logowanie
@@ -460,8 +516,9 @@ const App: React.FC = () => {
                             onClick={() => { 
                                 setAuthMode('register'); 
                                 setAuthError(''); 
-                                if (savedId) {
-                                    setLoginId('');
+                                setAuthSuccess('');
+                                if (savedEmail) {
+                                    setLoginEmail('');
                                 }
                             }}
                             className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${authMode === 'register' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -474,7 +531,7 @@ const App: React.FC = () => {
                         {isReturningUser ? (
                             <div className="text-center mb-6">
                                 <p className="text-sm text-slate-400">Witaj ponownie,</p>
-                                <p className="text-xl font-bold text-emerald-600 mb-2">{savedId}</p>
+                                <p className="text-lg font-bold text-emerald-600 mb-2 truncate px-4">{savedEmail}</p>
                                 <button 
                                     type="button" 
                                     onClick={handleSwitchAccount}
@@ -485,12 +542,12 @@ const App: React.FC = () => {
                             </div>
                         ) : (
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Identyfikator</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Adres Email</label>
                                 <input 
-                                    type="text"
-                                    value={loginId}
-                                    onChange={(e) => setLoginId(e.target.value)}
-                                    placeholder="np. imie.nazwisko"
+                                    type="email"
+                                    value={loginEmail}
+                                    onChange={(e) => setLoginEmail(e.target.value)}
+                                    placeholder="np. jan.kowalski@gmail.com"
                                     className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors"
                                     required
                                 />
@@ -498,24 +555,50 @@ const App: React.FC = () => {
                         )}
                         
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                                {isReturningUser ? 'Podaj swój PIN' : 'Kod dostępu (PIN)'}
-                            </label>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-xs font-bold text-slate-500 uppercase">
+                                    Hasło / PIN
+                                </label>
+                                {authMode === 'login' && !isReturningUser && (
+                                    <button 
+                                        type="button"
+                                        onClick={handleResetPassword}
+                                        className="text-[10px] text-blue-500 hover:text-blue-700 font-medium"
+                                    >
+                                        Nie pamiętam hasła
+                                    </button>
+                                )}
+                            </div>
                             <input 
                                 type="password" 
-                                inputMode="numeric"
-                                value={loginPin}
-                                onChange={(e) => setLoginPin(e.target.value)}
-                                placeholder="****"
-                                className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors tracking-widest text-center text-lg font-bold"
+                                value={loginPassword}
+                                onChange={(e) => setLoginPassword(e.target.value)}
+                                placeholder="Min. 6 znaków"
+                                className="w-full p-3 border border-slate-300 rounded-xl outline-emerald-500 bg-slate-50 focus:bg-white transition-colors tracking-widest text-lg font-bold"
                                 required
-                                autoFocus={!!isReturningUser}
                             />
+                            {isReturningUser && (
+                                <div className="text-right mt-1">
+                                     <button 
+                                        type="button"
+                                        onClick={handleResetPassword}
+                                        className="text-[10px] text-blue-500 hover:text-blue-700 font-medium"
+                                    >
+                                        Nie pamiętam hasła
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {authError && (
                             <div className="text-red-500 text-xs text-center bg-red-50 p-2 rounded-lg border border-red-100">
                                 {authError}
+                            </div>
+                        )}
+                        
+                        {authSuccess && (
+                            <div className="text-green-600 text-xs text-center bg-green-50 p-2 rounded-lg border border-green-100">
+                                {authSuccess}
                             </div>
                         )}
 
@@ -538,7 +621,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="mt-8 text-[10px] text-slate-300 max-w-xs text-center">
-                    Aplikacja zapamiętuje Twój identyfikator na tym urządzeniu.
+                    Aplikacja zapamiętuje Twój email na tym urządzeniu.
                 </div>
             </div>
         );
@@ -591,7 +674,7 @@ const App: React.FC = () => {
                         onDeleteIncome={deleteIncome}
                     />
                 )}
-                {view === 'settings' && <Settings payday={state.settings.payday} onPaydayChange={updatePayday} />}
+                {view === 'settings' && <Settings payday={state.settings.payday} onPaydayChange={updatePayday} onUpdatePin={handleChangePin} onDeleteAccount={handleDeleteAccount} user={user} />}
             </main>
 
             <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-lg pb-safe z-40">

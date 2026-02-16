@@ -6,8 +6,8 @@ import { Icons } from '../constants';
 interface FixedExpensesProps {
     expenses: FixedExpense[];
     onToggle: (id: string) => void;
-    onAdd: (name: string, amount: number, source: MoneySource) => void;
-    onEdit: (id: string, name: string, amount: number, source: MoneySource) => void;
+    onAdd: (name: string, amount: number, source: MoneySource, dueDate?: number) => void;
+    onEdit: (id: string, name: string, amount: number, source: MoneySource, dueDate?: number) => void;
     onDelete: (id: string) => void;
     onReset: () => void;
 }
@@ -22,12 +22,14 @@ export const FixedExpenses: React.FC<FixedExpensesProps> = ({ expenses, onToggle
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
     const [source, setSource] = useState<MoneySource>('bank');
+    const [dueDate, setDueDate] = useState(''); // New: Day of month
 
     const openAdd = () => {
         setEditingExpense(null);
         setName('');
         setAmount('');
         setSource('bank');
+        setDueDate('');
         setIsAdding(true);
     };
 
@@ -36,6 +38,7 @@ export const FixedExpenses: React.FC<FixedExpensesProps> = ({ expenses, onToggle
         setName(expense.name);
         setAmount(expense.amount.toString());
         setSource(expense.source);
+        setDueDate(expense.dueDate ? expense.dueDate.toString() : '');
         setIsAdding(true); // Re-use the modal/form visibility state
     };
 
@@ -43,22 +46,25 @@ export const FixedExpenses: React.FC<FixedExpensesProps> = ({ expenses, onToggle
         e.preventDefault();
         const sanitized = amount.replace(',', '.').replace(/\s/g, '');
         const val = parseFloat(sanitized);
+        const day = dueDate ? parseInt(dueDate) : undefined;
         
         if (name && !isNaN(val)) {
             if (editingExpense) {
-                onEdit(editingExpense.id, name, val, source);
+                onEdit(editingExpense.id, name, val, source, day);
             } else {
-                onAdd(name, val, source);
+                onAdd(name, val, source, day);
             }
             setIsAdding(false);
             setEditingExpense(null);
             setName('');
             setAmount('');
+            setDueDate('');
         }
     };
 
     const totalFixed = expenses.reduce((acc, curr) => acc + curr.amount, 0);
     const totalPaid = expenses.filter(e => e.isPaid).reduce((acc, curr) => acc + curr.amount, 0);
+    const currentDay = new Date().getDate();
 
     return (
         <div className="pb-24">
@@ -86,44 +92,75 @@ export const FixedExpenses: React.FC<FixedExpensesProps> = ({ expenses, onToggle
 
             {/* List */}
             <div className="space-y-3">
-                {expenses.map((expense) => (
-                    <div 
-                        key={expense.id} 
-                        className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
-                            expense.isPaid ? 'bg-emerald-50 border-emerald-200 opacity-60' : 'bg-white border-slate-200 shadow-sm'
-                        }`}
-                    >
-                        <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => onToggle(expense.id)}>
-                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${expense.isPaid ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
-                                {expense.isPaid && <Icons.CheckList className="w-3 h-3 text-white" />}
-                            </div>
-                            <div className="overflow-hidden">
-                                <p className={`font-medium truncate ${expense.isPaid ? 'text-emerald-800 line-through' : 'text-slate-800'}`}>{expense.name}</p>
-                                <div className="flex items-center gap-2 text-xs text-slate-500">
-                                    <span>{expense.amount.toFixed(2)} zł</span>
-                                    <span className="flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase">
-                                        {expense.source === 'bank' ? <Icons.Bank className="w-3 h-3" /> : <Icons.Wallet className="w-3 h-3" />}
-                                        {expense.source === 'bank' ? 'Bank' : 'Gotówka'}
-                                    </span>
+                {expenses
+                .sort((a,b) => {
+                    // Sort logic: unpaid first, then by due date
+                    if (a.isPaid === b.isPaid) {
+                        return (a.dueDate || 32) - (b.dueDate || 32);
+                    }
+                    return a.isPaid ? 1 : -1;
+                })
+                .map((expense) => {
+                    // Alert logic
+                    let urgencyColor = "text-slate-500";
+                    let urgencyBg = "";
+                    
+                    if (!expense.isPaid && expense.dueDate) {
+                        if (currentDay > expense.dueDate) {
+                            urgencyColor = "text-red-500 font-bold";
+                            urgencyBg = "bg-red-50 border-red-100";
+                        } else if (currentDay >= expense.dueDate - 2) {
+                            urgencyColor = "text-amber-500 font-bold";
+                            urgencyBg = "bg-amber-50 border-amber-100";
+                        }
+                    }
+
+                    return (
+                        <div 
+                            key={expense.id} 
+                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                                expense.isPaid 
+                                    ? 'bg-emerald-50 border-emerald-200 opacity-60' 
+                                    : (urgencyBg || 'bg-white border-slate-200 shadow-sm')
+                            }`}
+                        >
+                            <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => onToggle(expense.id)}>
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${expense.isPaid ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                                    {expense.isPaid && <Icons.CheckList className="w-3 h-3 text-white" />}
+                                </div>
+                                <div className="overflow-hidden">
+                                    <p className={`font-medium truncate ${expense.isPaid ? 'text-emerald-800 line-through' : 'text-slate-800'}`}>{expense.name}</p>
+                                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                                        <span>{expense.amount.toFixed(2)} zł</span>
+                                        <span className="flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase text-slate-500">
+                                            {expense.source === 'bank' ? <Icons.Bank className="w-3 h-3" /> : <Icons.Wallet className="w-3 h-3" />}
+                                            {expense.source === 'bank' ? 'Bank' : 'Gotówka'}
+                                        </span>
+                                        {expense.dueDate && (
+                                            <span className={`text-[10px] ${urgencyColor}`}>
+                                                Termin: {expense.dueDate}.
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    onClick={() => openEdit(expense)}
+                                    className="p-2 text-slate-400 hover:text-blue-500"
+                                >
+                                    <Icons.Pencil className="w-4 h-4" />
+                                </button>
+                                <button 
+                                    onClick={() => onDelete(expense.id)}
+                                    className="p-2 text-slate-400 hover:text-red-500"
+                                >
+                                    <Icons.Trash className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                            <button 
-                                onClick={() => openEdit(expense)}
-                                className="p-2 text-slate-400 hover:text-blue-500"
-                            >
-                                <Icons.Pencil className="w-4 h-4" />
-                            </button>
-                            <button 
-                                onClick={() => onDelete(expense.id)}
-                                className="p-2 text-slate-400 hover:text-red-500"
-                            >
-                                <Icons.Trash className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Add Button */}
@@ -152,15 +189,28 @@ export const FixedExpenses: React.FC<FixedExpensesProps> = ({ expenses, onToggle
                                 className="border border-slate-300 bg-white text-slate-900 p-3 rounded-lg w-full outline-emerald-500 placeholder-slate-400"
                                 required
                             />
-                            <input
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="Kwota"
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                className="border border-slate-300 bg-white text-slate-900 p-3 rounded-lg w-full outline-emerald-500 placeholder-slate-400"
-                                required
-                            />
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Kwota"
+                                    value={amount}
+                                    onChange={(e) => setAmount(e.target.value)}
+                                    className="border border-slate-300 bg-white text-slate-900 p-3 rounded-lg w-full outline-emerald-500 placeholder-slate-400 flex-1"
+                                    required
+                                />
+                                <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    placeholder="Dzień (opc)"
+                                    min="1"
+                                    max="31"
+                                    value={dueDate}
+                                    onChange={(e) => setDueDate(e.target.value)}
+                                    className="border border-slate-300 bg-white text-slate-900 p-3 rounded-lg w-24 outline-emerald-500 placeholder-slate-400 text-center"
+                                    title="Dzień płatności (1-31)"
+                                />
+                            </div>
                             
                             <div>
                                 <span className="text-xs font-semibold text-slate-500 mb-1 block">Pobieraj z:</span>

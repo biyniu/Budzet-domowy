@@ -12,6 +12,7 @@ export interface FixedExpense {
     amount: number;
     isPaid: boolean;
     source: MoneySource;
+    dueDate?: number; // Dzień miesiąca (1-31)
 }
 
 export interface EnvelopeTransaction {
